@@ -348,9 +348,9 @@ def example():
     import pygame
     
     pgbase.core.Window.setup()
-    polytope = RegularPolytope([3, 5])
+    polytope = RegularPolytope([3, 3, 4])
     window = pgbase.canvasnd.Window(polytope.dim, peel_depth = 5)
-    polytope.draw_pencil(window, [1, 0.5, 0.3])
+    polytope.draw_pencil(window, [1, 1, 1, 1])
     pgbase.core.run(window)
     pygame.quit()
     sys.exit()
