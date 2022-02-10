@@ -56,7 +56,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.bgs = []
         self.bg_timeout = 1
 
-        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "space.jpg"))
+        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "fire.jpg"))
 
         self.targ_iter = 1
         self.done_iter = 0
@@ -458,7 +458,7 @@ class JuliaSelect(Mandelbrot):
 
 
 def run():
-    pgbase.core.Window.setup(size = None)
+    pgbase.core.Window.setup(size = [1000, 1000])
     pgbase.core.run(JuliaSelect())
     pygame.quit()
     sys.exit()
