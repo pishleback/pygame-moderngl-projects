@@ -63,11 +63,10 @@ def load_tex(ctx, path):
 def tex_to_np(tex):
     if tex.dtype == "f1":
         data = np.frombuffer(tex.read(), dtype = np.uint8).reshape((tex.height, tex.width, tex.components))
-        data = np.flip(data, axis = 0).copy()
+##        data = np.flip(data, axis = 0).copy()
         return data
-                
     else:
-        raise NotImplementedError(f"Saving texture with dtype={tex.dtype} is not implemented")
+        raise NotImplementedError(f"dtype={tex.dtype} is not implemented")
 
 
 def in_rect(pos, rect):

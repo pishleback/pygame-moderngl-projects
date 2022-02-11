@@ -9,6 +9,101 @@ import pgbase
 import os
 
 
+PIX_ITER_PER_SEC = 10 ** 9
+MAX_ITER = 10 ** 6
+
+class RenderBox():
+    
+    def __init__(self, total_size, rect):
+        total_size = tuple(total_size)
+        rect = tuple(rect)
+        assert len(total_size) == 2
+        assert len(rect) == 4
+        for n in total_size:
+            assert type(n) == int
+        for n in rect:
+            assert type(n) == int
+        assert 0 <= rect[0] < total_size[0]
+        assert 0 <= rect[1] < total_size[1]
+        assert 0 <= rect[0] + rect[2] <= total_size[0]
+        assert 0 <= rect[1] + rect[3] <= total_size[1]
+        self.total_size = total_size
+        self.rect = rect
+        self.subs = None
+        self.complete = False
+        self.todo_count = rect[2] * rect[3]
+
+    def reset(self):
+        self.rect = [0, 0, self.total_size[0], self.total_size[1]]
+        self.subs = None
+        self.complete = False
+        
+    def update_complete(self, incomplete):
+        self.todo_count = np.count_nonzero(incomplete[self.rect[0] : self.rect[0] + self.rect[2], self.rect[1] : self.rect[1] + self.rect[3]])
+        if self.subs is None:
+            if self.todo_count == 0:
+                self.complete = True
+            elif self.todo_count / (self.rect[2] * self.rect[3]) < 1/64:
+                self.split()
+            
+##            x = np.where(np.logical_and(self.rect[0] <= incomplete[0], incomplete[0] < self.rect[0] + self.rect[2]))
+##            y = np.where(np.logical_and(self.rect[1] <= incomplete[1], incomplete[1] < self.rect[1] + self.rect[3]))
+##            incompnum = len(np.intersect1d(x, y))
+##            if incompnum == 0:
+##                self.complete = True
+####            elif incompnum < (self.rect[2] * self.rect[3]) // 16 and self.subs is None:
+####                self.split()
+        else:
+            for sub in self.subs:
+                sub.update_complete(incomplete)
+
+    def get_leaves(self):
+        if not self.complete:
+            if self.subs is None:
+                yield self
+            else:
+                for sub in self.subs:
+                    yield from sub.get_leaves()
+
+    def split(self):
+        assert self.subs is None
+        w1 = self.rect[2] // 2
+        w2 = self.rect[2] - w1
+        h1 = self.rect[3] // 2
+        h2 = self.rect[3] - h1
+        rects = [[self.rect[0], self.rect[1], w1, h1],
+                 [self.rect[0] + w1, self.rect[1], w2, h1],
+                 [self.rect[0], self.rect[1] + h1, w1, h2],
+                 [self.rect[0] + w1, self.rect[1] + h1, w2, h2]]
+        self.subs = []
+        for sub_rect in rects:
+            if sub_rect[2] != 0 and sub_rect[3] != 0:
+                self.subs.append(RenderBox(self.total_size, sub_rect))
+
+    def render(self, renderer, targ_iter):
+        if self.todo_count * targ_iter / PIX_ITER_PER_SEC > 0.2:
+            self.split()
+            return self.subs
+        else:
+            renderer(self.rect, targ_iter)
+            return []
+            
+
+##
+##b = RenderBox([100, 100], [0, 0, 50, 50], 0)
+##b.split()
+##
+##for a in b.get_leaves():
+##    print(a.subs)
+##    a.split()
+##    print(a.subs)
+##
+##for a in b.get_leaves():
+##    print(a.rect)
+##
+##
+##input()
+
 
 
 
@@ -44,8 +139,17 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
                                          [(vertices, "2f4", "unit_pos")],
                                          indices)
 
-        self.render_squares = 3
-        self.render_idx = 0
+##        self.render_squares = 3
+##        self.render_idx = 0
+##        self.targ_iter = 1
+##        self.done_iter = 0
+##        self.last_darw_time = time.time()
+##        self.sq_draw_times = []
+
+        self.render_root = RenderBox([1, 1], [0, 0, 1, 1])
+        self.render_leaves = []
+        self.done_iter = 0
+        
         self.res_mul = 2
 
         self.ignore_tex = self.ctx.texture([1, 1], 4)
@@ -57,18 +161,20 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.bg_timeout = 1
 
         self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "stock.jpg"))
-
-        self.targ_iter = 1
-        self.done_iter = 0
-
-        self.last_darw_time = time.time()
-        self.sq_draw_times = []
         
         self.last_user_time = time.time()
 
         self.zoom_clear()
 
         super().__init__(*args, **kwargs)
+
+    @property
+    def targ_iter(self):
+        return max(16, min(MAX_ITER, self.done_iter * 4 + 1))
+
+    @property
+    def pixel_size(self):
+        return [self.res_mul * self.width, self.res_mul * self.height]
 
     def set_rect(self, rect):
         super().set_rect(rect)
@@ -77,11 +183,11 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.colour_tex.release()
         self.colour_fbo.release()
         self.bgs = []
+        self.render_root = RenderBox(self.pixel_size, [0, 0, self.pixel_size[0], self.pixel_size[1]])
 
-        N = self.res_mul
-        self.ignore_tex = self.ctx.texture([N * self.width, N * self.height], 4)
+        self.ignore_tex = self.ctx.texture(self.pixel_size, 4)
         self.ignore_fbo = self.ctx.framebuffer(self.ignore_tex)
-        self.colour_tex = self.ctx.texture([N * self.width, N * self.height], 4)
+        self.colour_tex = self.ctx.texture(self.pixel_size, 4)
         self.colour_fbo = self.ctx.framebuffer(self.colour_tex)
         
     def __del__(self):
@@ -96,10 +202,13 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         
 
     def zoom_clear(self):
-        self.targ_iter = 1
+##        self.targ_iter = 1
+##        self.done_iter = 0
+##        self.render_idx = 0
+##        self.render_squares = 1
+        self.render_root.reset()
+        self.render_leaves = []
         self.done_iter = 0
-        self.render_idx = 0
-        self.render_squares = 1
         self.ignore_fbo.clear(0, 0, 0, 0)
         self.colour_fbo.clear(0, 0, 0, 0)
         
@@ -120,6 +229,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
                 break
 
         data = pgbase.tools.tex_to_np(self.colour_tex)
+        data = np.flip(data, axis = 0)
         r, g, b, a = data[:, :, 0], data[:, :, 1], data[:, :, 2], data[:, :, 3]
         gap = a == 0
         r = np.where(gap, 0, r)
@@ -132,8 +242,9 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
     def get_incomplete(self):
         #return a list of pixels (in high res space) whose colour we havent yet determined
         ar = pgbase.tools.tex_to_np(self.colour_tex)
-        incomp = np.transpose(np.where(ar[:, :, 3] == 0), [1, 0])
-        return incomp
+        return np.transpose(ar[:, :, 3] == 0, [1, 0])
+##        y, x = np.where(ar[:, :, 3] == 0)
+##        return x, y
 
     def event(self, event):
         if event.type == pygame.KEYDOWN:
@@ -144,7 +255,6 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
                 if time.time() - self.last_user_time > self.bg_timeout:
                     p1 = self.gl_to_world([-1, -1])
                     p2 = self.gl_to_world([1, 1])
-                    N = self.res_mul
                     def dodel(bgp1, bgp2):
                         if p1[0] < bgp1[0] < p2[0] and p1[1] < bgp1[1] < p2[1]:
                             if p1[0] < bgp2[0] < p2[0] and p1[1] < bgp2[1] < p2[1]:
@@ -152,7 +262,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
                         return False
                     self.bgs = [bg for bg in self.bgs if not dodel(bg.p1, bg.p2)]
                     if p1[0] ** 2 + p1[1] ** 2 < 100 and p2[0] ** 2 + p2[1] ** 2 < 100:
-                        self.bgs.append(BgInfo(self.ctx, self.colour_tex, [N * self.width, N * self.height], p1, p2, self.done_iter))
+                        self.bgs.append(BgInfo(self.ctx, self.colour_tex, self.pixel_size, p1, p2, self.done_iter))
                     print("BG COUNT", len(self.bgs))
                     
                 self.zoom_clear()
@@ -162,39 +272,68 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
     def draw(self):
         super().set_uniforms([self.prog])
 
-        if time.time() - self.last_user_time > 0.2:
-            self.prog["iter"].value = self.targ_iter
-            self.prog["squares"].value = self.render_squares
-            self.prog["sq_pos"].value = divmod(self.render_idx, self.render_squares)
-            
-            self.colour_fbo.use()
-            self.ignore_tex.use(0)
-            self.palette_tex.use(1)
-            self.vao.render(moderngl.TRIANGLES, instances = 1)
-
-            self.ignore_fbo.use()
-            pgbase.tools.render_tex(self.colour_tex)
-
-            self.sq_draw_times.append(time.time() - self.last_darw_time)
-
-            if max(self.sq_draw_times) > 0.2:
-                self.render_squares += 1
-                self.sq_draw_times = []
-
-##                T = self.res_mul ** 2 * self.width * self.height
-##                IC = len(self.get_incomplete())
-##                C = T - IC
-##                P = C / T
-                
-                print(f"OOOOOF", self.targ_iter, self.render_squares)
-            else:
-                self.render_idx = (self.render_idx + 1) % (self.render_squares ** 2)
-                if self.render_idx == 0:
+        if time.time() - self.last_user_time > 0.5:
+            for _ in range(3):
+                if len(self.render_leaves) == 0:
+                    self.render_root.update_complete(self.get_incomplete())
                     self.done_iter = self.targ_iter
-                    self.targ_iter = min([math.ceil(2 * self.targ_iter), 10 ** 6])
-                    self.sq_draw_times = []
+                    self.render_leaves = list(self.render_root.get_leaves())
+                    print(len(self.render_leaves), self.targ_iter)
+                                
 
-            self.last_darw_time = time.time()
+                if len(self.render_leaves) != 0:
+                    leaf = self.render_leaves[-1]
+                    def renderer(rect, iterations):
+                        self.prog["iter"].value = iterations
+                        ps = self.pixel_size
+                        self.prog["box_pos"].value = rect[0] / ps[0], rect[1] / ps[1]
+                        self.prog["box_size"].value = rect[2] / ps[0], rect[3] / ps[1]
+                        
+                        self.colour_fbo.use()
+                        self.ignore_tex.use(0)
+                        self.palette_tex.use(1)
+                        self.vao.render(moderngl.TRIANGLES, instances = 1)
+
+                        self.ignore_fbo.use()
+                        pgbase.tools.render_tex(self.colour_tex)
+                    todo = leaf.render(renderer, self.targ_iter)
+                    self.render_leaves.pop()
+                    self.render_leaves.extend(todo)
+
+
+##        if time.time() - self.last_user_time > 0.2:
+##            self.prog["iter"].value = self.targ_iter
+##            self.prog["squares"].value = self.render_squares
+##            self.prog["sq_pos"].value = divmod(self.render_idx, self.render_squares)
+##            
+##            self.colour_fbo.use()
+##            self.ignore_tex.use(0)
+##            self.palette_tex.use(1)
+##            self.vao.render(moderngl.TRIANGLES, instances = 1)
+##
+##            self.ignore_fbo.use()
+##            pgbase.tools.render_tex(self.colour_tex)
+##
+##            self.sq_draw_times.append(time.time() - self.last_darw_time)
+##
+##            if max(self.sq_draw_times) > 0.2:
+##                self.render_squares += 1
+##                self.sq_draw_times = []
+##
+####                T = self.res_mul ** 2 * self.width * self.height
+####                IC = len(self.get_incomplete())
+####                C = T - IC
+####                P = C / T
+##                
+##                print(f"OOOOOF", self.targ_iter, self.render_squares)
+##            else:
+##                self.render_idx = (self.render_idx + 1) % (self.render_squares ** 2)
+##                if self.render_idx == 0:
+##                    self.done_iter = self.targ_iter
+##                    self.targ_iter = min([math.ceil(2 * self.targ_iter), 10 ** 6])
+##                    self.sq_draw_times = []
+##
+##            self.last_darw_time = time.time()
 
         self.ctx.screen.use()
         self.ctx.enable_only(moderngl.BLEND)
@@ -235,13 +374,13 @@ class Mandelbrot(MandelbrotBase):
             out vec2 v_tex_pos;
             out vec2 v_unit_pos;
 
-            uniform float squares;
-            uniform vec2 sq_pos;
+            uniform vec2 box_pos;
+            uniform vec2 box_size;
 
             void main() {            
                 vec2 unit_pos;
                 for (int i = 0; i < 3; i++) {
-                    unit_pos = 2 * (0.5 + 0.5 * g_unit_pos[i] + sq_pos) / squares - 1;
+                    unit_pos = 2 * (box_size * (0.5 + 0.5 * g_unit_pos[i]) + box_pos) - 1;
                 
                     gl_Position = vec4(unit_pos, 0.0, 1.0);
                     v_tex_pos = 0.5 + 0.5 * unit_pos;
