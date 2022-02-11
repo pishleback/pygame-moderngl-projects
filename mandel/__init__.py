@@ -9,7 +9,7 @@ import pgbase
 import os
 
 
-PIX_ITER_PER_SEC = 10 ** 9
+PIX_ITER_PER_SEC = 10 ** 10
 MAX_ITER = 10 ** 6
 
 class RenderBox():
@@ -33,17 +33,41 @@ class RenderBox():
         self.complete = False
         self.todo_count = rect[2] * rect[3]
 
+    @property
+    def sub_rects(self):
+        w1 = self.rect[2] // 2
+        w2 = self.rect[2] - w1
+        h1 = self.rect[3] // 2
+        h2 = self.rect[3] - h1
+        yield [self.rect[0], self.rect[1], w1, h1]
+        yield [self.rect[0] + w1, self.rect[1], w2, h1]
+        yield [self.rect[0], self.rect[1] + h1, w1, h2]
+        yield [self.rect[0] + w1, self.rect[1] + h1, w2, h2]
+
+    def should_split(self, iters):
+        tot_count = self.rect[2] * self.rect[3]
+        done_count = tot_count - self.todo_count
+
+        if done_count / tot_count > 0.9:
+            return True
+        
+        secs = self.todo_count * iters / PIX_ITER_PER_SEC
+        return secs > 0.2
+        
+
     def reset(self):
         self.rect = [0, 0, self.total_size[0], self.total_size[1]]
         self.subs = None
         self.complete = False
         
     def update_complete(self, incomplete):
-        self.todo_count = np.count_nonzero(incomplete[self.rect[0] : self.rect[0] + self.rect[2], self.rect[1] : self.rect[1] + self.rect[3]])
+        todo_counts = [np.count_nonzero(incomplete[sr[0] : sr[0] + sr[2], sr[1] : sr[1] + sr[3]]) for sr in self.sub_rects]
+        self.todo_count = sum(todo_counts)
+        
         if self.subs is None:
             if self.todo_count == 0:
                 self.complete = True
-            elif self.todo_count / (self.rect[2] * self.rect[3]) < 1/64:
+            elif any(c == 0 for c in todo_counts):
                 self.split()
             
 ##            x = np.where(np.logical_and(self.rect[0] <= incomplete[0], incomplete[0] < self.rect[0] + self.rect[2]))
@@ -57,34 +81,27 @@ class RenderBox():
             for sub in self.subs:
                 sub.update_complete(incomplete)
 
-    def get_leaves(self):
+    def get_leaves(self, targ_iter):
         if not self.complete:
-            if self.subs is None:
+            if self.subs is None or not self.should_split(targ_iter):
                 yield self
             else:
                 for sub in self.subs:
-                    yield from sub.get_leaves()
+                    yield from sub.get_leaves(targ_iter)
 
     def split(self):
         assert self.subs is None
-        w1 = self.rect[2] // 2
-        w2 = self.rect[2] - w1
-        h1 = self.rect[3] // 2
-        h2 = self.rect[3] - h1
-        rects = [[self.rect[0], self.rect[1], w1, h1],
-                 [self.rect[0] + w1, self.rect[1], w2, h1],
-                 [self.rect[0], self.rect[1] + h1, w1, h2],
-                 [self.rect[0] + w1, self.rect[1] + h1, w2, h2]]
         self.subs = []
-        for sub_rect in rects:
+        for sub_rect in self.sub_rects:
             if sub_rect[2] != 0 and sub_rect[3] != 0:
                 self.subs.append(RenderBox(self.total_size, sub_rect))
 
     def render(self, renderer, targ_iter):
-        if self.todo_count * targ_iter / PIX_ITER_PER_SEC > 0.2:
+        if self.should_split(targ_iter):
             self.split()
             return self.subs
         else:
+            #print(self.rect[2] * self.rect[3], self.todo_count, targ_iter, max(1000, self.todo_count) * targ_iter / PIX_ITER_PER_SEC)
             renderer(self.rect, targ_iter)
             return []
             
@@ -273,32 +290,31 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         super().set_uniforms([self.prog])
 
         if time.time() - self.last_user_time > 0.5:
-            for _ in range(3):
-                if len(self.render_leaves) == 0:
-                    self.render_root.update_complete(self.get_incomplete())
-                    self.done_iter = self.targ_iter
-                    self.render_leaves = list(self.render_root.get_leaves())
-                    print(len(self.render_leaves), self.targ_iter)
-                                
+            if len(self.render_leaves) == 0:
+                self.render_root.update_complete(self.get_incomplete())
+                self.done_iter = self.targ_iter
+                self.render_leaves = list(self.render_root.get_leaves(self.targ_iter))
+                print(len(self.render_leaves), self.targ_iter)
+                            
 
-                if len(self.render_leaves) != 0:
-                    leaf = self.render_leaves[-1]
-                    def renderer(rect, iterations):
-                        self.prog["iter"].value = iterations
-                        ps = self.pixel_size
-                        self.prog["box_pos"].value = rect[0] / ps[0], rect[1] / ps[1]
-                        self.prog["box_size"].value = rect[2] / ps[0], rect[3] / ps[1]
-                        
-                        self.colour_fbo.use()
-                        self.ignore_tex.use(0)
-                        self.palette_tex.use(1)
-                        self.vao.render(moderngl.TRIANGLES, instances = 1)
+            if len(self.render_leaves) != 0:
+                leaf = self.render_leaves[-1]
+                def renderer(rect, iterations):
+                    self.prog["iter"].value = iterations
+                    ps = self.pixel_size
+                    self.prog["box_pos"].value = rect[0] / ps[0], rect[1] / ps[1]
+                    self.prog["box_size"].value = rect[2] / ps[0], rect[3] / ps[1]
+                    
+                    self.colour_fbo.use()
+                    self.ignore_tex.use(0)
+                    self.palette_tex.use(1)
+                    self.vao.render(moderngl.TRIANGLES, instances = 1)
 
-                        self.ignore_fbo.use()
-                        pgbase.tools.render_tex(self.colour_tex)
-                    todo = leaf.render(renderer, self.targ_iter)
-                    self.render_leaves.pop()
-                    self.render_leaves.extend(todo)
+                    self.ignore_fbo.use()
+                    pgbase.tools.render_tex(self.colour_tex)
+                todo = leaf.render(renderer, self.targ_iter)
+                self.render_leaves.pop()
+                self.render_leaves.extend(todo)
 
 
 ##        if time.time() - self.last_user_time > 0.2:
