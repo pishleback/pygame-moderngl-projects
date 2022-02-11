@@ -56,7 +56,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.bgs = []
         self.bg_timeout = 1
 
-        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "fire.jpg"))
+        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "stock.jpg"))
 
         self.targ_iter = 1
         self.done_iter = 0
@@ -129,6 +129,12 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         data = np.array([r, g, b, a]).transpose([1, 2, 0])
         imageio.imwrite(path, data)
 
+    def get_incomplete(self):
+        #return a list of pixels (in high res space) whose colour we havent yet determined
+        ar = pgbase.tools.tex_to_np(self.colour_tex)
+        incomp = np.transpose(np.where(ar[:, :, 3] == 0), [1, 0])
+        return incomp
+
     def event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_s:
@@ -169,13 +175,17 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
             self.ignore_fbo.use()
             pgbase.tools.render_tex(self.colour_tex)
 
-            t = time.time()
-            self.sq_draw_times.append(t - self.last_darw_time)
-            self.last_darw_time = t
+            self.sq_draw_times.append(time.time() - self.last_darw_time)
 
             if max(self.sq_draw_times) > 0.2:
                 self.render_squares += 1
                 self.sq_draw_times = []
+
+##                T = self.res_mul ** 2 * self.width * self.height
+##                IC = len(self.get_incomplete())
+##                C = T - IC
+##                P = C / T
+                
                 print(f"OOOOOF", self.targ_iter, self.render_squares)
             else:
                 self.render_idx = (self.render_idx + 1) % (self.render_squares ** 2)
@@ -184,6 +194,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
                     self.targ_iter = min([math.ceil(2 * self.targ_iter), 10 ** 6])
                     self.sq_draw_times = []
 
+            self.last_darw_time = time.time()
 
         self.ctx.screen.use()
         self.ctx.enable_only(moderngl.BLEND)
@@ -271,9 +282,9 @@ class Mandelbrot(MandelbrotBase):
                             if ((z.x * z.x + z.y * z.y) > 8.0) break;
                         }
 
-                        z = dvec2(z.x * z.x - z.y * z.y, 2 * z.y * z.x) + c;
-                        z = dvec2(z.x * z.x - z.y * z.y, 2 * z.y * z.x) + c;
-                        z = dvec2(z.x * z.x - z.y * z.y, 2 * z.y * z.x) + c;
+                        z = mult(z, z) + c;
+                        z = mult(z, z) + c;
+                        z = mult(z, z) + c;
 
                         if (i != iter) {
                             float logmod = 0.5 * log(float(z.x * z.x + z.y * z.y));
@@ -287,7 +298,18 @@ class Mandelbrot(MandelbrotBase):
                             float y = colour_scale.y * j + colour_offset.y;
                             f_colour = vec4(texture(palette, vec2(x, y)).xyz, 1);
                         } else {
-                            f_colour = vec4(0.0, 0.0, 0.0, 0.0);
+                            //f_colour = vec4(0, 0, 0, 0);
+                            //return;
+                            dvec2 z0 = z;
+
+                            for(i = 0; i < iter / 100; i++) {
+                                z = mult(z, z) + c;
+                                if (length(z - z0) < 0.000000000000001) {
+                                    f_colour = vec4(0, 0, 0, 1);
+                                    return;
+                                }
+                            }
+                            f_colour = vec4(0, 0, 0, 0);
                         }
                     }
                 }
@@ -458,7 +480,7 @@ class JuliaSelect(Mandelbrot):
 
 
 def run():
-    pgbase.core.Window.setup(size = [1000, 1000])
+    pgbase.core.Window.setup(size = None)
     pgbase.core.run(JuliaSelect())
     pygame.quit()
     sys.exit()
