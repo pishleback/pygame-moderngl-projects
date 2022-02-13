@@ -635,7 +635,7 @@ class JuliaSelect(Mandelbrot):
 
 
 def run():
-    pgbase.core.Window.setup(size = None)
+    pgbase.core.Window.setup(size = [1000, 1000])
     pgbase.core.run(JuliaSelect())
     pygame.quit()
     sys.exit()
