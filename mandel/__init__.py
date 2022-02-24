@@ -9,7 +9,7 @@ import pgbase
 import os
 
 
-PIX_ITER_PER_SEC = 10 ** 10
+PIX_ITER_PER_SEC = 3 * 10 ** 9
 MAX_ITER = 10 ** 6
 
 class RenderBox():
@@ -177,7 +177,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.bgs = []
         self.bg_timeout = 1
 
-        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "stock.jpg"))
+        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "space.jpg"))
         
         self.last_user_time = time.time()
 
@@ -635,7 +635,7 @@ class JuliaSelect(Mandelbrot):
 
 
 def run():
-    pgbase.core.Window.setup(size = [1000, 1000])
+    pgbase.core.Window.setup(size = None)
     pgbase.core.run(JuliaSelect())
     pygame.quit()
     sys.exit()
