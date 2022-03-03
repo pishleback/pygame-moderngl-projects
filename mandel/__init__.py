@@ -177,7 +177,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.bgs = []
         self.bg_timeout = 1
 
-        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "space.jpg"))
+        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "fire.jpg"))
         
         self.last_user_time = time.time()
 
