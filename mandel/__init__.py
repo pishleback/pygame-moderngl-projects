@@ -514,13 +514,13 @@ class Julia(MandelbrotBase):
             out vec2 v_tex_pos;
             out vec2 v_unit_pos;
 
-            uniform float squares;
-            uniform vec2 sq_pos;
+            uniform vec2 box_pos;
+            uniform vec2 box_size;
 
             void main() {            
                 vec2 unit_pos;
                 for (int i = 0; i < 3; i++) {
-                    unit_pos = 2 * (0.5 + 0.5 * g_unit_pos[i] + sq_pos) / squares - 1;
+                    unit_pos = 2 * (box_size * (0.5 + 0.5 * g_unit_pos[i]) + box_pos) - 1;
                 
                     gl_Position = vec4(unit_pos, 0.0, 1.0);
                     v_tex_pos = 0.5 + 0.5 * unit_pos;
