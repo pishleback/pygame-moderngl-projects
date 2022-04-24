@@ -994,6 +994,11 @@ class Window(pgbase.canvas3d.Window):
                             dy = -1
                         if self.active_dim != 2:
                             self.projection[3, self.active_dim] += dy / 100
+                        else:
+                            print(self.camera)
+                            print("lol")
+                            self.camera.fov += dy
+                            self.camera.fov = min(179, max(1, self.camera.fov))
 
     
 Camera = pgbase.canvas3d.Camera
