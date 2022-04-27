@@ -7,13 +7,13 @@ import imageio
 import time
 import pgbase
 import os
+import random
 
 
 PIX_ITER_PER_SEC = 3 * 10 ** 9
 MAX_ITER = 10 ** 6
 
 class RenderBox():
-    
     def __init__(self, total_size, rect):
         total_size = tuple(total_size)
         rect = tuple(rect)
@@ -147,7 +147,9 @@ class BgInfo():
 
 
 class MandelbrotBase(pgbase.canvas2d.Window2D):
-    def __init__(self, *args, **kwargs):
+    def generate_program(self):
+        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", random.choice(["space.jpg", "fire.jpg", "grr.jpg", "grrr.jpg", "lightning.jpg", "water.jpg", "stock.jpg", "pal2.jpg"])))
+        
         self.prog = self.get_prog()
 
         vertices = self.ctx.buffer(np.array([[-1, -1], [1, -1], [-1, 1], [1, 1]]).astype('f4'))
@@ -155,6 +157,9 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.vao = self.ctx.vertex_array(self.prog,
                                          [(vertices, "2f4", "unit_pos")],
                                          indices)
+    
+    def __init__(self, *args, **kwargs):
+        self.generate_program()
 
 ##        self.render_squares = 3
 ##        self.render_idx = 0
@@ -176,8 +181,6 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
 
         self.bgs = []
         self.bg_timeout = 1
-
-        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", "forest.jpg"))
         
         self.last_user_time = time.time()
 
@@ -229,7 +232,6 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         self.ignore_fbo.clear(0, 0, 0, 0)
         self.colour_fbo.clear(0, 0, 0, 0)
         
-
     def full_clear(self):
         self.zoom_clear()
         self.bgs = []
@@ -267,6 +269,9 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_s:
                 self.save_img()
+            if event.key == pygame.K_c:
+                self.generate_program()
+                self.full_clear()
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button in {4, 5}:
                 if time.time() - self.last_user_time > self.bg_timeout:
@@ -471,7 +476,6 @@ class Mandelbrot(MandelbrotBase):
     
             """,
         )
-        import random
         prog["colour_offset"].value = (random.uniform(0, 1), random.uniform(0, 1))
         prog["colour_scale"].value = (random.uniform(0.1, 0.3), random.uniform(0.1, 0.3))
         prog["tex"].value = 0
@@ -586,7 +590,6 @@ class Julia(MandelbrotBase):
     
             """,
         )
-        import random
         prog["colour_offset"].value = (random.uniform(0, 1), random.uniform(0, 1))
         prog["colour_scale"].value = (random.uniform(0.1, 0.3), random.uniform(0.1, 0.3))
         prog["tex"].value = 0
@@ -635,7 +638,7 @@ class JuliaSelect(Mandelbrot):
 
 
 def run():
-    pgbase.core.Window.setup(size = [1000, 1000])
+    pgbase.core.Window.setup(size = None)
     pgbase.core.run(JuliaSelect())
     pygame.quit()
     sys.exit()
