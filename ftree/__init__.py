@@ -1,4 +1,5 @@
 from ftree import treedata
+from ftree import treeview
 from ftree import myxml
 
 def run():
@@ -16,14 +17,22 @@ def run():
     path = os.path.join("ftree", "saves", "main0" + ".txt")
     print(path)
 
-    f = open(path, "r")
-    tree = treedata.Tree.Load(myxml.Tag.Load(f.read()))
-    f.close()
+    with open(path, "r") as f:
+        tree = treedata.Tree.Load(myxml.Tag.Load(f.read()))
+    
+##    tree = treedata.Tree()
+##    ps = [treedata.Person("p1", []),
+##          treedata.Person("p2", []),
+##          treedata.Person("p3", []),
+##          treedata.Person("p4", []),
+##          treedata.Person("p5", [])]
 
-    print(tree)
-    G = tree.digraph()
+    treeview.run(tree)
 
-    print(G)
+##    print(tree)
+##    G = tree.digraph()
+##
+##    print(G)
 
 
     

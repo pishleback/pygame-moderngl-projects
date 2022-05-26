@@ -3,6 +3,8 @@ import random
 import itertools
 import fractions
 from ftree import myxml
+from ftree import treeview
+import networkx as nx
 
 
 PATH = None
@@ -851,7 +853,7 @@ class Tree():
             entity_lookup[entitiy.ident] = entitiy
         return Tree(entity_lookup)
     
-    def __init__(self, entity_lookup):
+    def __init__(self, entity_lookup = {}):
         for ident, entity in entity_lookup.items():
             assert type(ident) == str
             assert issubclass(type(entity), Entity)
@@ -862,21 +864,25 @@ class Tree():
             if not str(x) in self.entity_lookup:
                 return x
 
+    @property
+    def people(self):
+        return tuple(entity for entity in self.entity_lookup.values() if type(entity) == Person)
+
 ##    def structure_changed(self):
 ##        for entity in self.entities:
 ##            if type(entity) == Person:
 ##                entity.reset_relationship_cache()
 
 
-    def add_entity(self, entity):
-        assert issubclass(type(entity), Entity)
-        assert not entity in self.entity_lookup.values()
-        self.entity_lookup[self.new_ident] = entity
-
-    def remove_entity(self, entity):
-        assert issubclass(type(entity), Entity)
-        entity.delete()
-        self.entities.remove(entity)
+##    def add_entity(self, entity):
+##        assert issubclass(type(entity), Entity)
+##        assert not entity in self.entity_lookup.values()
+##        self.entity_lookup[self.new_ident] = entity
+##
+##    def remove_entity(self, entity):
+##        assert issubclass(type(entity), Entity)
+##        entity.delete()
+##        self.entities.remove(entity)
         
 
 ##    def replace_entity(self, old_entity, new_entity):
@@ -917,7 +923,6 @@ class Tree():
             print(ident, entity)
 
     def digraph(self):
-        import networkx as nx
         #graph whose verticies are either people or partnerships
         #people connect to partnerships
         #partnerships connect to people
@@ -937,11 +942,24 @@ class Tree():
                     G.add_edge(ident, child_pointer.to_entity.ident)
 
         assert nx.is_directed_acyclic_graph(G) #assert no time travel
-
-        for x in nx.topological_generations(G):
-            print("  ".join([str(self.entity_lookup[ident]) for ident in x]))
-
         return G
+
+##    def planar_centered_graph(self, entity):
+##        G = self.digraph()
+##        assert entity.ident in G.nodes()
+##        print(G, entity)
+##
+##        #ancestors
+##        #descendants
+##
+##        print(nx.ancestors(G, entity.ident))
+##        print(nx.descendants(G, entity.ident))
+##
+##        return 
+
+        
+        
+        
 
         
 

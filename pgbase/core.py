@@ -2,6 +2,9 @@ import pygame
 import moderngl
 
 class Window():
+    screen = None
+    ctx = None
+    
     #should call this once before running anything
     #should not be called while running
     #so ctx and screen should be fixed in practice
@@ -18,6 +21,8 @@ class Window():
         cls.ctx = ctx
     
     def __init__(self, rect = None):
+        assert not type(self).screen is None
+        assert not type(self).ctx is None
         if rect is None:
             rect = [0, 0, self.screen.get_width(), self.screen.get_height()]
         self.set_rect(rect)

@@ -1,5 +1,8 @@
-import mandel
-mandel.run()
+##import mandel
+##mandel.run()
+
+import ftree
+ftree.run()
 
 
 ##import polytopes
