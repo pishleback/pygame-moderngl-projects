@@ -148,8 +148,9 @@ class BgInfo():
 
 class MandelbrotBase(pgbase.canvas2d.Window2D):
     def generate_program(self):
-        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", random.choice(["space.jpg", "fire.jpg", "grr.jpg", "grrr.jpg", "lightning.jpg", "water.jpg", "stock.jpg", "pal2.jpg"])))
-        
+        self.palette_tex = pgbase.tools.load_tex(self.ctx, os.path.join("mandel", random.choice(["cfire.PNG", "cfire2.PNG", "space.jpg", "fire.jpg", "grr.jpg", "grrr.jpg", "lightning.jpg", "water.jpg", "stock.jpg", "pal2.jpg"])))
+
+
         self.prog = self.get_prog()
 
         vertices = self.ctx.buffer(np.array([[-1, -1], [1, -1], [-1, 1], [1, 1]]).astype('f4'))
@@ -477,7 +478,7 @@ class Mandelbrot(MandelbrotBase):
             """,
         )
         prog["colour_offset"].value = (random.uniform(0, 1), random.uniform(0, 1))
-        prog["colour_scale"].value = (random.uniform(0.1, 0.3), random.uniform(0.1, 0.3))
+        prog["colour_scale"].value = (random.uniform(0.02, 0.3), random.uniform(0.02, 0.3))
         prog["tex"].value = 0
         prog["palette"].value = 1
         return prog
@@ -638,7 +639,7 @@ class JuliaSelect(Mandelbrot):
 
 
 def run():
-    pgbase.core.Window.setup(size = None)
+    pgbase.core.Window.setup(size = [1000, 1000])
     pgbase.core.run(JuliaSelect())
     pygame.quit()
     sys.exit()
