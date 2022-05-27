@@ -43,9 +43,9 @@ class TreeView(pgbase.canvas2d.Window2D):
                     bool by = mod(pos.y, 2) < 1;
 
                     if ((bx && by) || (!bx && !by)) {
-                        f_colour = vec4(0.7, 0.7, 0.7, 0);
+                        f_colour = 0.05 * vec4(1, 1, 1, 0);
                     } else {
-                        f_colour = vec4(0.8, 0.8, 0.8, 0);
+                        f_colour = 0.1 * vec4(1, 1, 1, 0);
                     }
                 }
     
@@ -71,6 +71,7 @@ class TreeView(pgbase.canvas2d.Window2D):
 ##        G.add_edge(1, 7)
 ##        G.add_edge(7, 8)
 ##        G.add_edge(8, 6)
+##        G.add_edge(1, 6)
 
         G = self.tree.digraph()
         
@@ -104,93 +105,123 @@ class TreeView(pgbase.canvas2d.Window2D):
         node_widths = {}
             
         root = max(G.nodes(), key = lambda x : len(nx.ancestors(G, x)))
-        above = [root] + list(nx.ancestors(G, root))
+##        above = [root] + list(nx.ancestors(G, root))
 
-        layers = []
-        h = node_heights[root]
-        to_collect = set(above)
-        while len(to_collect) != 0:
-            layer = set(x for x in to_collect if node_heights[x] < h + 0.5)
-            for x in layer:
-                to_collect.remove(x)
-            layers.append(layer)
-            h += 1
+        def rel_widths_above(node):
+            pred = list(G.predecessors(node))
+            if len(pred) == 0:
+                return {node : 0.0}
+            else:
+                n = len(pred)
+                sub_rel_widths_above = [rel_widths_above(p) for p in G.predecessors(node)]
 
-        print(layers)
-        
-        largest_idx = max(range(len(layers)), key = lambda i : len(layers[i]))
-        largest_layer = layers[largest_idx]
-        sorted_largest_layer = [next(iter(largest_layer))]
-        while len(sorted_largest_layer) != len(largest_layer):
-            x = min([x for x in largest_layer if not x in sorted_largest_layer],
-                    key = lambda y : nx.shortest_path_length(G.to_undirected(), sorted_largest_layer[-1], y))
-            sorted_largest_layer.append(x)
+                move_bys = []
+                for i in range(n - 1):
+                    move_by = -math.inf
+                    for x in sub_rel_widths_above[i]:
+                        for y in sub_rel_widths_above[i + 1]:
+                            if abs(node_heights[x] - node_heights[y]) < 1:
+                                move_by = max(move_by, 1 + sub_rel_widths_above[i][x] - sub_rel_widths_above[i + 1][y])
+                    move_bys.append(move_by)
+                                
+                sub_rel_widths_above = [{n : w + sum(move_bys[:i]) for n, w in sub_rel_widths_above[i].items()} for i in range(n)]
+                rel_widths = {}
+                for i in range(n):
+                    for n, w in sub_rel_widths_above[i].items():
+                        rel_widths[n] = w
+                rel_widths[node] = 0.5 * (max(rel_widths[p] for p in pred) + min(rel_widths[p] for p in pred))
+                return rel_widths
 
-        
-##        sorted_largest_layer = sorted(largest_layer, key = lambda y : nx.shortest_path_length(G.to_undirected(), x, y))
+        rel_widths = rel_widths_above(root)
+        print(rel_widths)
 
+        node_widths = rel_widths
 
-        
-        for i, x in enumerate(sorted_largest_layer):
-            node_widths[x] = i
-
-        for i in range(largest_idx + 1, len(layers)):
-            edges = list(nx.edge_boundary(G.to_undirected(), layers[i - 1], layers[i]))
-
-            layer = list(layers[i])
-            layer_idx_lookup = {x : idx for idx, x in enumerate(layer)}
-
-            def fun(widths):
-                tot = 0
-                for x, y in edges:
-                    xw, xh = node_widths[x], node_heights[x]
-                    yw, yh = widths[layer_idx_lookup[y]], node_heights[y]
-                    tot += (xw - yw) ** 2 + (xh - yh) ** 2                    
-                return tot
-
-            def min_w(widths):
-                if len(widths) <= 1:
-                    return 2
-                nums = []
-                for i in range(len(widths)):
-                    for j in range(i + 1, len(widths)):
-                        nums.append(abs(widths[i] - widths[j]))
-                return min(nums)
-
-            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(layer))])
-            opt = scipy.optimize.minimize(fun, opt.x + (np.random.random([len(layer)]) - 0.5), constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
-            for i, x in enumerate(layer):
-                node_widths[x] = opt.x[i]
-
-
-        for i in reversed(range(0, largest_idx)):
-            edges = list(nx.edge_boundary(G.to_undirected(), layers[i], layers[i + 1]))
-            edges = [(e[1], e[0]) for e in edges]
-
-            layer = list(layers[i])
-            layer_idx_lookup = {x : idx for idx, x in enumerate(layer)}
-
-            def fun(widths):
-                tot = 0
-                for x, y in edges:
-                    xw, xh = node_widths[x], node_heights[x]
-                    yw, yh = widths[layer_idx_lookup[y]], node_heights[y]
-                    tot += (xw - yw) ** 2 + (xh - yh) ** 2                    
-                return tot
-
-            def min_w(widths):
-                if len(widths) <= 1:
-                    return 2
-                nums = []
-                for i in range(len(widths)):
-                    for j in range(i + 1, len(widths)):
-                        nums.append(abs(widths[i] - widths[j]))
-                return min(nums)
-
-            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(layer))])
-            opt = scipy.optimize.minimize(fun, opt.x + (np.random.random([len(layer)]) - 0.5), constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
-            for i, x in enumerate(layer):
-                node_widths[x] = opt.x[i]
+##        layers = []
+##        h = node_heights[root]
+##        to_collect = set(above)
+##        while len(to_collect) != 0:
+##            layer = set(x for x in to_collect if node_heights[x] < h + 0.5)
+##            for x in layer:
+##                to_collect.remove(x)
+##            layers.append(layer)
+##            h += 1
+##
+##        print(layers)
+##        
+##        largest_idx = max(range(len(layers)), key = lambda i : len(layers[i]))
+##        largest_layer = layers[largest_idx]
+##        sorted_largest_layer = [next(iter(largest_layer))]
+##        while len(sorted_largest_layer) != len(largest_layer):
+##            x = min([x for x in largest_layer if not x in sorted_largest_layer],
+##                    key = lambda y : nx.shortest_path_length(G.to_undirected(), sorted_largest_layer[-1], y))
+##            sorted_largest_layer.append(x)
+##
+##        
+####        sorted_largest_layer = sorted(largest_layer, key = lambda y : nx.shortest_path_length(G.to_undirected(), x, y))
+##
+##
+##        
+##        for i, x in enumerate(sorted_largest_layer):
+##            node_widths[x] = i
+##
+##        for i in range(largest_idx + 1, len(layers)):
+##            edges = list(nx.edge_boundary(G.to_undirected(), layers[i - 1], layers[i]))
+##
+##            layer = list(layers[i])
+##            layer_idx_lookup = {x : idx for idx, x in enumerate(layer)}
+##
+##            def fun(widths):
+##                tot = 0
+##                for x, y in edges:
+##                    xw, xh = node_widths[x], node_heights[x]
+##                    yw, yh = widths[layer_idx_lookup[y]], node_heights[y]
+##                    tot += (xw - yw) ** 2 + (xh - yh) ** 2                    
+##                return tot
+##
+##            def min_w(widths):
+##                if len(widths) <= 1:
+##                    return 2
+##                nums = []
+##                for i in range(len(widths)):
+##                    for j in range(i + 1, len(widths)):
+##                        nums.append(abs(widths[i] - widths[j]))
+##                return min(nums)
+##
+##            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(layer))])
+##            opt = scipy.optimize.minimize(fun, opt.x + (np.random.random([len(layer)]) - 0.5), constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
+##            for i, x in enumerate(layer):
+##                node_widths[x] = opt.x[i]
+##
+##
+##        for i in reversed(range(0, largest_idx)):
+##            edges = list(nx.edge_boundary(G.to_undirected(), layers[i], layers[i + 1]))
+##            edges = [(e[1], e[0]) for e in edges]
+##
+##            layer = list(layers[i])
+##            layer_idx_lookup = {x : idx for idx, x in enumerate(layer)}
+##
+##            def fun(widths):
+##                tot = 0
+##                for x, y in edges:
+##                    xw, xh = node_widths[x], node_heights[x]
+##                    yw, yh = widths[layer_idx_lookup[y]], node_heights[y]
+##                    tot += (xw - yw) ** 2 + (xh - yh) ** 2                    
+##                return tot
+##
+##            def min_w(widths):
+##                if len(widths) <= 1:
+##                    return 2
+##                nums = []
+##                for i in range(len(widths)):
+##                    for j in range(i + 1, len(widths)):
+##                        nums.append(abs(widths[i] - widths[j]))
+##                return min(nums)
+##
+##            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(layer))])
+##            opt = scipy.optimize.minimize(fun, opt.x + (np.random.random([len(layer)]) - 0.5), constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
+##            for i, x in enumerate(layer):
+##                node_widths[x] = opt.x[i]
 
 ##        print(largest_idx)
 ##            
@@ -271,15 +302,22 @@ class TreeView(pgbase.canvas2d.Window2D):
                 
 
         G = G.subgraph(node_widths.keys())
-
-        poses = {x : [node_widths[x], node_heights[x]] for x in G.nodes()}
         
-        for x, y in G.edges():
-            self.shapes.add_shape(shapely.geometry.LineString([poses[x], poses[y]]).buffer(0.05), (0, 0, 1, 1))
+        for x in G.nodes():
+            if type(self.tree.entity_lookup[x]) == treedata.Partnership:
+                adj = list(G.successors(x)) + list(G.predecessors(x))
+                w0, w1 = min(node_widths[y] for y in adj), max(node_widths[y] for y in adj)
+                h = node_heights[x]
+                colour = (1, 0, 0, 1)                
+                self.shapes.add_shape(shapely.geometry.LineString([[w0, h], [w1, h]]).buffer(0.05), colour)
+                for a in adj:
+                    w = node_widths[a]
+                    self.shapes.add_shape(shapely.geometry.LineString([[w, node_heights[a]], [w, h]]).buffer(0.05), colour)
             
         for x in G.nodes():
-            colour = (1, 1, 0, 1)                
-            self.shapes.add_shape(shapely.geometry.Point(poses[x]).buffer(0.2), colour)
+            if type(self.tree.entity_lookup[x]) == treedata.Person:
+                colour = (0, 1, 1, 1)                
+                self.shapes.add_shape(shapely.geometry.Point([node_widths[x], node_heights[x]]).buffer(0.2), colour)
             
         self.shapes.update_vao()
 
