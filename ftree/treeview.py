@@ -6,7 +6,10 @@ import moderngl
 import sys
 import shapely.geometry
 import networkx as nx
-
+import itertools
+import scipy.optimize
+import scipy.spatial
+import math
 
 
 class TreeView(pgbase.canvas2d.Window2D):
@@ -55,89 +58,230 @@ class TreeView(pgbase.canvas2d.Window2D):
                                          indices)
 
 
-        import math
         import random
         self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
-##        for x in range(0, 1000):
-##            self.shapes.add_shape(shapely.geometry.Point(math.sqrt(x) * math.cos(x), math.sqrt(x) * math.sin(x)).buffer(1), (math.sin(x), math.cos(x), 0.5, 1))
-##        self.shapes.update_vao()
 
+        
+##        G = nx.DiGraph()
+##        G.add_edge(1, 2)
+##        G.add_edge(2, 3)
+##        G.add_edge(3, 4)
+##        G.add_edge(4, 5)
+##        G.add_edge(5, 6)
+##        G.add_edge(1, 7)
+##        G.add_edge(7, 8)
+##        G.add_edge(8, 6)
 
         G = self.tree.digraph()
-
-        H = G.to_undirected()
-
-        print(H)
-
-        for boop in nx.k_edge_subgraphs(H, 3):
-            if len(boop) >= 2:
-                print(boop)
-
-
-        input()
         
-        entity_heights = {x : 0 for x in G.nodes() if type(self.tree.entity_lookup[x]) == treedata.Person}
 
+        oriented_cycles = [list(zip(nodes,(nodes[1:] + nodes[:1]))) for nodes in nx.cycle_basis(G.to_undirected())]
+        edges = list(G.edges())
+        #extend some edges such that we get a well defined (up to adding a constant) height function on nodes
+        opt_result = scipy.optimize.linprog(np.ones(len(edges)),
+                                      A_eq = np.array([[(1 if edge in oc else (-1 if (edge[1], edge[0]) in oc else 0)) for edge in edges] for oc in oriented_cycles]),
+                                      b_eq = np.zeros(len(oriented_cycles)),
+                                      bounds = [[1, None]] * len(edges))
+        edge_lengths = {edges[i] : opt_result.x[i] for i in range(len(edges))}
+        #smooth out the extensions along paths
+        #for example, we could have .--1--.--1--.--4--. which can be smoothed to .--2--.--2--.--2--.
+        #NOT IMPLEMENTED YET
+
+        #convert edge lengths to a height function
+        start = next(iter(G.nodes()))
+        node_heights = {start : 0.0}
+        for edge in nx.dfs_edges(G.to_undirected(), start):
+            if edge in edge_lengths:
+                dh = -edge_lengths[edge]
+            else:
+                dh = edge_lengths[(edge[1], edge[0])]
+            node_heights[edge[1]] = node_heights[edge[0]] + dh
+            
+        #successors
+        #predecessors
         #ancestors
         #descendants
-        #predecessors
-        #successors
+        node_widths = {}
+            
+        root = max(G.nodes(), key = lambda x : len(nx.ancestors(G, x)))
+        above = [root] + list(nx.ancestors(G, root))
+
+        layers = []
+        h = node_heights[root]
+        to_collect = set(above)
+        while len(to_collect) != 0:
+            layer = set(x for x in to_collect if node_heights[x] < h + 0.5)
+            for x in layer:
+                to_collect.remove(x)
+            layers.append(layer)
+            h += 1
+
+        print(layers)
+        
+        largest_idx = max(range(len(layers)), key = lambda i : len(layers[i]))
+        largest_layer = layers[largest_idx]
+        sorted_largest_layer = [next(iter(largest_layer))]
+        while len(sorted_largest_layer) != len(largest_layer):
+            x = min([x for x in largest_layer if not x in sorted_largest_layer],
+                    key = lambda y : nx.shortest_path_length(G.to_undirected(), sorted_largest_layer[-1], y))
+            sorted_largest_layer.append(x)
+
+        
+##        sorted_largest_layer = sorted(largest_layer, key = lambda y : nx.shortest_path_length(G.to_undirected(), x, y))
 
 
-        x = max([x for x in G.nodes() if type(self.tree.entity_lookup[x]) == treedata.Person], key = lambda x : len(nx.ancestors(G, x)) + len(nx.descendants(G, x)))
-        upwards = set([x])
-        to_check = set([x])
-        while len(to_check) != 0:
-            new_to_check = set()
-            for x in to_check:
-                for y in G.predecessors(x):
-                    upwards.add(y)
-                    new_to_check.add(y)
-                    entity_heights[y] = entity_heights[x] + 1
-            to_check = new_to_check
+        
+        for i, x in enumerate(sorted_largest_layer):
+            node_widths[x] = i
 
-##        maximal_upwards = set(x for x in upwards if len(list(G.predecessors(x))) == 0)
-##
-##        class Component():
-##            def __init__(self, x):
-##                self.graph = nx.DiGraph()
-##                self.graph.add_node(x)
-##                self.to_check = set(x)
+        for i in range(largest_idx + 1, len(layers)):
+            edges = list(nx.edge_boundary(G.to_undirected(), layers[i - 1], layers[i]))
+
+            layer = list(layers[i])
+            layer_idx_lookup = {x : idx for idx, x in enumerate(layer)}
+
+            def fun(widths):
+                tot = 0
+                for x, y in edges:
+                    xw, xh = node_widths[x], node_heights[x]
+                    yw, yh = widths[layer_idx_lookup[y]], node_heights[y]
+                    tot += (xw - yw) ** 2 + (xh - yh) ** 2                    
+                return tot
+
+            def min_w(widths):
+                if len(widths) <= 1:
+                    return 2
+                nums = []
+                for i in range(len(widths)):
+                    for j in range(i + 1, len(widths)):
+                        nums.append(abs(widths[i] - widths[j]))
+                return min(nums)
+
+            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(layer))])
+            opt = scipy.optimize.minimize(fun, opt.x + (np.random.random([len(layer)]) - 0.5), constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
+            for i, x in enumerate(layer):
+                node_widths[x] = opt.x[i]
+
+
+        for i in reversed(range(0, largest_idx)):
+            edges = list(nx.edge_boundary(G.to_undirected(), layers[i], layers[i + 1]))
+            edges = [(e[1], e[0]) for e in edges]
+
+            layer = list(layers[i])
+            layer_idx_lookup = {x : idx for idx, x in enumerate(layer)}
+
+            def fun(widths):
+                tot = 0
+                for x, y in edges:
+                    xw, xh = node_widths[x], node_heights[x]
+                    yw, yh = widths[layer_idx_lookup[y]], node_heights[y]
+                    tot += (xw - yw) ** 2 + (xh - yh) ** 2                    
+                return tot
+
+            def min_w(widths):
+                if len(widths) <= 1:
+                    return 2
+                nums = []
+                for i in range(len(widths)):
+                    for j in range(i + 1, len(widths)):
+                        nums.append(abs(widths[i] - widths[j]))
+                return min(nums)
+
+            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(layer))])
+            opt = scipy.optimize.minimize(fun, opt.x + (np.random.random([len(layer)]) - 0.5), constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
+            for i, x in enumerate(layer):
+                node_widths[x] = opt.x[i]
+
+##        print(largest_idx)
+##            
 ##            
 ##
-##        components = [Component(x) for x in upwards if len(list(G.predecessors(x))) == 0]            
-
-        
-
-        G = G.subgraph(upwards)
-
-        
+##        input()
+##
+##        def gen_layers():
+##            h = node_heights[root]
+##            max_h = max(node_heights[a] for a in above)
+##            while h < max_h:
+##                yield h, [a for a in above if abs(node_heights[a] - h) < 0.5]
+##                h += 0.3
+##
+##        h, layer = max(gen_layers(), key = lambda h_lay : len(h_lay[1]))
+##        x = next(iter(layer))
+##        sorted_layer = sorted(layer, key = lambda y : nx.shortest_path_length(G.to_undirected(), x, y))
+##        for i, x in enumerate(sorted_layer):
+##            node_widths[x] = i
+##
+##        while True:
+##            edges = G.reverse().edges(layer)
+##            next_layer = list(set(edge[1] for edge in edges))
+##            if len(next_layer) == 0:
+##                break
+##            next_layer_idx = {x : idx for idx, x in enumerate(next_layer)}
+##
+##            def fun(widths):
+##                tot = 0
+##                for x, y in edges:
+##                    xw, xh = node_widths[x], node_heights[x]
+##                    yw, yh = widths[next_layer_idx[y]], node_heights[y]
+##                    tot += (xw - yw) ** 2 + (xh - yh) ** 2
+##                return tot
+##
+##            def min_w(widths):
+##                nums = [0]
+##                for i in range(len(widths)):
+##                    for j in range(i + 1, len(widths)):
+##                        nums.append(abs(widths[i] - widths[j]))
+##                return min(nums)
+##            
+##            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(next_layer))], constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
+##            
+##            for i in range(len(next_layer)):
+##                node_widths[next_layer[i]] = opt.x[i]
+##            layer = next_layer
+##
+##        layer = sorted_layer
+##        while True:
+##            edges = G.edges(layer)
+##            next_layer = list(set(edge[1] for edge in edges))
+##            if len(next_layer) == 0:
+##                break
+##            next_layer_idx = {x : idx for idx, x in enumerate(next_layer)}
+##
+##            def fun(widths):
+##                tot = 0
+##                for x, y in edges:
+##                    xw, xh = node_widths[x], node_heights[x]
+##                    yw, yh = widths[next_layer_idx[y]], node_heights[y]
+##                    tot += (xw - yw) ** 2 + (xh - yh) ** 2
+##                return tot
+##
+##            def min_w(widths):
+##                nums = [0]
+##                for i in range(len(widths)):
+##                    for j in range(i + 1, len(widths)):
+##                        nums.append(abs(widths[i] - widths[j]))
+##                return min(nums)
+##            
+##            opt = scipy.optimize.minimize(fun, [random.uniform(-1, 1) for _ in range(len(next_layer))], constraints = [scipy.optimize.NonlinearConstraint(min_w, lb = 1, ub = np.inf)])
+##            
+##            for i in range(len(next_layer)):
+##                node_widths[next_layer[i]] = opt.x[i]
+##            layer = next_layer
             
-
-        
-
-
-
-        entity_positions = {}
-        for x in G.nodes:
-            entity_positions[x] = [random.uniform(-10, 10), entity_heights[x]]
                 
-            
-        for x, y in G.edges:               
-            self.shapes.add_shape(shapely.geometry.LineString([entity_positions[x], entity_positions[y]]).buffer(0.05), (0, 0, 1, 1))
 
+        G = G.subgraph(node_widths.keys())
+
+        poses = {x : [node_widths[x], node_heights[x]] for x in G.nodes()}
+        
+        for x, y in G.edges():
+            self.shapes.add_shape(shapely.geometry.LineString([poses[x], poses[y]]).buffer(0.05), (0, 0, 1, 1))
+            
         for x in G.nodes():
-##            print(source, root)
-##            if x in maximal_upwards:
-##                colour = (0, 1, 0, 1)
-##            else:
             colour = (1, 1, 0, 1)                
-            self.shapes.add_shape(shapely.geometry.Point(entity_positions[x]).buffer(0.2), colour)
+            self.shapes.add_shape(shapely.geometry.Point(poses[x]).buffer(0.2), colour)
             
         self.shapes.update_vao()
-
-##        for x in nx.topological_generations(G):
-##            print("  ".join([str(self.tree.entity_lookup[ident]) for ident in x]))
 
     def set_rect(self, rect):
         super().set_rect(rect)
