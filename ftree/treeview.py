@@ -62,17 +62,15 @@ class TreeView(pgbase.canvas2d.Window2D):
         self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
 
         
-        G = nx.DiGraph()
-        G.add_edge(2, 1)
-        G.add_edge(3, 1)
-        G.add_edge(7, 2)
-        G.add_edge(8, 2)
-        G.add_edge(2, 9)
-        G.add_edge(1, 4)
-        G.add_edge(1, 5)
-        G.add_edge(1, 6)
+##        G = nx.DiGraph()
+##        G.add_edge(2, 1)
+##        G.add_edge(3, 1)
+##        G.add_edge(4, 2)
+##        G.add_edge(5, 2)
+##        G.add_edge(6, 3)
+##        G.add_edge(7, 3)
 
-##        G = self.tree.digraph()
+        G = self.tree.digraph()
         
 
         oriented_cycles = [list(zip(nodes,(nodes[1:] + nodes[:1]))) for nodes in nx.cycle_basis(G.to_undirected())]
@@ -107,46 +105,215 @@ class TreeView(pgbase.canvas2d.Window2D):
         #predecessors
         #ancestors
         #descendants
-        
-        def rel_widths_below(G, node, limit = math.inf, ignore = None, flip_depth = 0):
-            if ignore is None:
-                ignore = set()
-            next_nodes = list(x for x in G.successors(node) if not x in ignore)
-            if len(next_nodes) == 0 or limit == 0:
-                return {node : 0.0}
+
+        def center(rw, c):
+            if len(rw) == 0:
+                return rw
             else:
-                n = len(next_nodes)
-                sub_rel_widths = []
-                sub_ignore = set(ignore) | set([node])
-                for p in next_nodes:
-                    srw = rel_widths_below(G, p, limit = limit - 1, ignore = sub_ignore, flip_depth = flip_depth)
-                    if flip_depth != 0:
-                        srw |= rel_widths_above(G, p, limit = 1, ignore = sub_ignore, flip_depth = flip_depth - 1)
-                        #srw |= rel_widths_above(G, p, limit = limit - 1, ignore = sub_ignore, flip_depth = flip_depth - 1)
-                    sub_rel_widths.append(srw)
-                    for x in srw:
-                        sub_ignore.add(x)
-                rel_widths = sub_rel_widths[0]
-                for i in range(1, n):
-                    move_by = -math.inf
-                    for x in rel_widths:
-                        for y in sub_rel_widths[i]:
-                            if abs(node_heights[x] - node_heights[y]) < 1:
-                                move_by = max(move_by, 1 + rel_widths[x] - sub_rel_widths[i][y])
-                    for n, w in sub_rel_widths[i].items():
-                        rel_widths[n] = w + move_by
-                if node == 2:
-                    print(next_nodes)
-                rel_widths[node] = 0.5 * (max(rel_widths[p] for p in next_nodes) + min(rel_widths[p] for p in next_nodes))
-                return rel_widths
+                min_w = min(list(rw.values()))
+                max_w = max(list(rw.values()))
+                off = 0.5 * (max_w + min_w)
+                return {a : w - off for a, w in rw.items()}
             
-        def rel_widths_above(G, node, limit = math.inf, ignore = None, flip_depth = 0):
-            return rel_widths_below(G.reverse(), node, limit = limit, ignore = ignore, flip_depth = flip_depth)
+
+        def stack(rws):
+            def stack_pair(rw1, rw2):
+                m = math.inf
+                for a, b in itertools.product(rw1.keys(), rw2.keys()):
+                    assert a != b
+                    if abs(node_heights[a] - node_heights[b]) < 1:
+                        m = min(m, rw2[b] - rw1[a] - 1)
+                if m is math.inf:
+                    return center(rw1, 0) | center(rw2, 0)
+                else:
+                    rw = {}
+                    for a, w in rw1.items():
+                        rw[a] = w
+                    for b, w in rw2.items():
+                        rw[b] = w - m
+                    return rw
+            if len(rws) == 0:
+                return {}
+            elif len(rws) == 1:
+                return rws[0]
+            elif len(rws) == 2:
+                return stack_pair(rws[0], rws[1])
+            else:
+                k = len(rws) // 2
+                return stack_pair(stack(rws[:k]), stack(rws[k:]))
+
+        def compute_widths_down_part(G, node):
+            tops = [{node : 0}]
+            found_tops = set([node])
+            for n in G.successors(node):
+                for p in G.predecessors(n):
+                    if not p in found_tops:
+                        found_tops.add(p)
+                        tops.append({p : 0})
+            bots = []
+            for n in G.successors(node):
+                bots.append(compute_widths_down_part(G, n))            
+            return center(stack(tops), 0) | center(stack(bots), 0)
+            
+        def compute_widths_up(G, node):
+            return {node : 0} | center(stack([compute_widths_up(G, n) for n in G.predecessors(node)]), 0)
+
+        def compute_widths_down(G, node):
+            return {node : 0} | center(stack([compute_widths_down(G, n) for n in G.successors(node)]), 0)
+            
+
+
 
         root = max(G.nodes(), key = lambda x : len(nx.ancestors(G, x)))
-        node_widths = rel_widths_above(G, root, flip_depth = 1)
+        for _ in range(3):
+            root = next(iter(G.predecessors(root)))
+##        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
+        node_widths = compute_widths_up(G, root) | compute_widths_down_part(G, root)
+
+
+
+
+
+
+
+
+
+        
+
+##        def rel_widths_downwards(G, node, complete = None, minh = -math.inf):
+##            if complete is None:
+##                complete = set()
+##            complete.add(node)
+##            next_nodes = list(x for x in G.successors(node) if node_heights[x] > minh and not x in complete)
+##            rel_widths = {node : 0.0}
+##            if len(next_nodes) == 0:
+##                return rel_widths
+##            else:
+##                n = len(next_nodes)
+##                sub_rel_widths = []
+##                for i, p in enumerate(next_nodes):
+##                    srw = rel_widths_downwards(G, p, complete = complete, minh = minh)
+##                    complete |= srw.keys()
+##                    sub_rel_widths.append(srw)
+##                all_sub_rel_widths = sub_rel_widths[0]
+##                for i in range(1, n):
+##                    move_by = -math.inf
+##                    for x in all_sub_rel_widths:
+##                        for y in sub_rel_widths[i]:
+##                            if abs(node_heights[x] - node_heights[y]) < 1:
+##                                move_by = max(move_by, 1 + all_sub_rel_widths[x] - sub_rel_widths[i][y])
+##                    for n, w in sub_rel_widths[i].items():
+##                        all_sub_rel_widths[n] = w + move_by
+##                offset = 0.5 * (max(all_sub_rel_widths[p] for p in next_nodes) + min(all_sub_rel_widths[p] for p in next_nodes))
+##                all_sub_rel_widths = {p : w - offset for p, w in all_sub_rel_widths.items()} 
+##                return rel_widths | all_sub_rel_widths
+##
+##        def rel_widths_upwards(G, node, base, complete = None, minh_left = -math.inf, minh_right = -math.inf):
+##            assert node in base
+##                
+##            if complete is None:
+##                complete = set(base.keys())
+##            complete.add(node)
+##            
+##            #rel_widths_downwards(G, node, minh = min(minh_left, minh_right))
+##
+##            rel_widths = {x : w for x, w in base.items()}
+##
+##            next_nodes = list(x for x in G.successors(node) if not x in complete)
+##            if len(next_nodes) != 0:
+##                n = len(next_nodes)
+##                sub_rel_widths = []
+##                for i, p in enumerate(next_nodes):
+##                    minh_mid = node_heights[node] + 1
+##                    if i == 0:
+##                        sub_minh_left = minh_left
+##                        sub_minh_right = minh_mid
+##                    elif i == len(next_nodes) - 1:
+##                        sub_minh_left = minh_mid
+##                        sub_minh_right = minh_right
+##                    else:
+##                        sub_minh_left = minh_mid
+##                        sub_minh_right = minh_mid
+##                    srw = rel_widths_downwards(G, p, complete = complete, minh = minh_left)
+##                    complete |= srw.keys()
+##                    sub_rel_widths.append(srw)
+##                all_sub_rel_widths = sub_rel_widths[0]
+##                for i in range(1, n):
+##                    move_by = -math.inf
+##                    for x in all_sub_rel_widths:
+##                        for y in sub_rel_widths[i]:
+##                            if abs(node_heights[x] - node_heights[y]) < 1:
+##                                move_by = max(move_by, 1 + all_sub_rel_widths[x] - sub_rel_widths[i][y])
+##                    for n, w in sub_rel_widths[i].items():
+##                        all_sub_rel_widths[n] = w + move_by
+##                offset = max(all_sub_rel_widths[p] for p in next_nodes) + 1
+##                all_sub_rel_widths = {p : w - offset for p, w in all_sub_rel_widths.items()}
+##                rel_widths |= all_sub_rel_widths
+##
+##
+##            next_nodes = list(x for x in G.predecessors(node) if not x in complete)
+##            if len(next_nodes) != 0:
+##                n = len(next_nodes)
+##                sub_rel_widths = []
+##                for i, p in enumerate(next_nodes):
+##                    minh_mid = node_heights[node] + 1
+##                    if i == 0:
+##                        sub_minh_left = minh_left
+##                        sub_minh_right = minh_mid
+##                    elif i == len(next_nodes) - 1:
+##                        sub_minh_left = minh_mid
+##                        sub_minh_right = minh_right
+##                    else:
+##                        sub_minh_left = minh_mid
+##                        sub_minh_right = minh_mid
+##                    srw = rel_widths_upwards(G, p, complete = complete, minh_left = sub_minh_left, minh_right = sub_minh_right)
+##                    complete |= srw.keys()
+##                    sub_rel_widths.append(srw)
+##                all_sub_rel_widths = sub_rel_widths[0]
+##                for i in range(1, n):
+##                    move_by = -math.inf
+##                    for x in all_sub_rel_widths:
+##                        for y in sub_rel_widths[i]:
+##                            if abs(node_heights[x] - node_heights[y]) < 1:
+##                                move_by = max(move_by, 1 + all_sub_rel_widths[x] - sub_rel_widths[i][y])
+##                    for n, w in sub_rel_widths[i].items():
+##                        all_sub_rel_widths[n] = w + move_by
+##                offset = 0.5 * (max(all_sub_rel_widths[p] for p in next_nodes) + min(all_sub_rel_widths[p] for p in next_nodes))
+##                all_sub_rel_widths = {p : w - offset for p, w in all_sub_rel_widths.items()}
+##                rel_widths |= all_sub_rel_widths
+##
+##
+####            rel_widths[node] = 0.0
+##
+####            close_to_node = [x for x in rel_widths if abs(node_heights[x] - node_heights[node]) < 0.9]
+####            if len(close_to_node) == 0:
+####                rel_widths[node] = 0.0
+####            else:
+####                left_pos = -min(rel_widths[x] - 1 for x in close_to_node)
+####                right_pos = max(rel_widths[x] + 1 for x in close_to_node)
+####                if left_pos < right_pos:
+####                    rel_widths[node] = -left_pos
+####                else:
+####                    rel_widths[node] = right_pos
+##                
+##            return rel_widths
+
+            
+
+####        root = max(G.nodes(), key = lambda x : len(nx.ancestors(G, x)))
+####        node_widths = rel_widths_upwards(G, root, {root : 0.0})
+##
+####        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
+####        node_widths = rel_widths_downwards(G, root)
+
+
+
+        
 
         G = G.subgraph(node_widths.keys())
+
+        node_widths = {n : w + random.uniform(-0.1, 0.1) for n, w in node_widths.items()}
+        node_heights = {n : h + random.uniform(-0.1, 0.1) for n, h in node_heights.items()}
         
 ##        for x in G.nodes():
 ##            if type(self.tree.entity_lookup[x]) == treedata.Partnership:
@@ -158,21 +325,16 @@ class TreeView(pgbase.canvas2d.Window2D):
 ##                for a in adj:
 ##                    w = node_widths[a]
 ##                    self.shapes.add_shape(shapely.geometry.LineString([[w, node_heights[a]], [w, h]]).buffer(0.05), colour)
-##            
 ##        for x in G.nodes():
 ##            if type(self.tree.entity_lookup[x]) == treedata.Person:
 ##                colour = (0, 1, 1, 1)                
 ##                self.shapes.add_shape(shapely.geometry.Point([node_widths[x], node_heights[x]]).buffer(0.2), colour)
-
-        node_widths = {n : w + random.uniform(-0.1, 0.1) for n, w in node_widths.items()}
-        node_heights = {n : h + random.uniform(-0.1, 0.1) for n, h in node_heights.items()}
 
         for x, y in G.edges():
             p1 = [node_widths[x], node_heights[x]]
             p2 = [node_widths[y], node_heights[y]]
             colour = (0, 0, 1, 1)
             self.shapes.add_shape(shapely.geometry.LineString([p1, p2]).buffer(0.05), colour)
-            
         for x in G.nodes():
             colour = (1, 1, 0, 1)
 ##            if type(self.tree.entity_lookup[x]) == treedata.Person:
