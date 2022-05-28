@@ -65,10 +65,32 @@ class TreeView(pgbase.canvas2d.Window2D):
 ##        G = nx.DiGraph()
 ##        G.add_edge(2, 1)
 ##        G.add_edge(3, 1)
-##        G.add_edge(4, 2)
+##        G.add_edge(4, 1)
+##
 ##        G.add_edge(5, 2)
-##        G.add_edge(6, 3)
-##        G.add_edge(7, 3)
+##        G.add_edge(6, 2)
+##        G.add_edge(7, 2)
+##
+##        G.add_edge(8, 3)
+##        G.add_edge(9, 3)
+##        G.add_edge(10, 3)
+##
+##        G.add_edge(11, 4)
+##        G.add_edge(12, 4)
+##        G.add_edge(13, 4)
+##
+##        G.add_edge(5, 14)
+##        G.add_edge(6, 15)
+##        G.add_edge(7, 16)
+##        
+##        G.add_edge(8, 17)
+##        G.add_edge(9, 18)
+##        G.add_edge(10, 19)
+##        
+##        G.add_edge(11, 20)
+##        G.add_edge(12, 21)
+##        G.add_edge(13, 22)
+    
 
         G = self.tree.digraph()
         
@@ -106,6 +128,17 @@ class TreeView(pgbase.canvas2d.Window2D):
         #ancestors
         #descendants
 
+        def match(node, rw1, rw2):
+            assert node in rw1
+            assert node in rw2
+            for a in rw1:
+                for b in rw2:
+                    if a != node and b != node:
+                        assert a != b
+            off = rw1[node] - rw2[node]
+            rw2m = {b : w + off for b, w in rw2.items()}
+            return rw1 | rw2m
+
         def center(rw, c):
             if len(rw) == 0:
                 return rw
@@ -120,7 +153,7 @@ class TreeView(pgbase.canvas2d.Window2D):
             def stack_pair(rw1, rw2):
                 m = math.inf
                 for a, b in itertools.product(rw1.keys(), rw2.keys()):
-                    assert a != b
+##                    assert a != b
                     if abs(node_heights[a] - node_heights[b]) < 1:
                         m = min(m, rw2[b] - rw1[a] - 1)
                 if m is math.inf:
@@ -142,19 +175,57 @@ class TreeView(pgbase.canvas2d.Window2D):
                 k = len(rws) // 2
                 return stack_pair(stack(rws[:k]), stack(rws[k:]))
 
-        def compute_widths_down_part(G, node):
+        def compute_widths_down_part(G, node, minh = -math.inf):
+            if node_heights[node] < minh:
+                return {}
             tops = [{node : 0}]
             found_tops = set([node])
             for n in G.successors(node):
-                for p in G.predecessors(n):
-                    if not p in found_tops:
-                        found_tops.add(p)
-                        tops.append({p : 0})
+                if node_heights[n] >= minh:
+                    for p in G.predecessors(n):
+                        if not p in found_tops:
+                            found_tops.add(p)
+                            tops.append({p : 0})
             bots = []
             for n in G.successors(node):
-                bots.append(compute_widths_down_part(G, n))            
+                if node_heights[n] >= minh:
+                    bots.append(compute_widths_down_part(G, n, minh = minh))            
             return center(stack(tops), 0) | center(stack(bots), 0)
+
+        def compute_widths_related(G, node, base = None, minh_left = -math.inf, minh_right = -math.inf):
+            if base is None:
+                base = compute_widths_down_part(G, node)
+            assert node in base
+            preds = list(G.predecessors(node))
+
+            minh_mid = node_heights[node] + 1.5
+
+            downs = [base]
+            for i, x in enumerate(preds):
+                if i == 0:
+                    sub_bases = [compute_widths_down_part(G, y, minh = minh_left) for y in G.successors(x) if not y is node]
+                    downs = sub_bases + downs
+                elif i == len(preds) - 1:
+                    sub_bases = [compute_widths_down_part(G, y, minh = minh_right) for y in G.successors(x) if not y is node]
+                    downs = sub_bases + downs
+                else:
+                    sub_bases = [compute_widths_down_part(G, y, minh = minh_mid) for y in G.successors(x) if not y is node]
+                    downs = downs + sub_bases
+            new_base = stack(downs)
+
+            tops = []
+            for i, x in enumerate(preds):
+                if i == 0:
+                    top = compute_widths_related(G, x, new_base, minh_left = minh_left, minh_right = minh_mid)
+                elif i == len(preds) - 1:
+                    top = compute_widths_related(G, x, new_base, minh_left = minh_mid, minh_right = minh_right)
+                else:
+                    top = compute_widths_related(G, x, new_base, minh_left = minh_mid, minh_right = minh_mid)
+                tops.append(top)
             
+            return new_base | center(stack(tops), 0)
+                                
+                            
         def compute_widths_up(G, node):
             return {node : 0} | center(stack([compute_widths_up(G, n) for n in G.predecessors(node)]), 0)
 
@@ -168,7 +239,9 @@ class TreeView(pgbase.canvas2d.Window2D):
         for _ in range(3):
             root = next(iter(G.predecessors(root)))
 ##        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
-        node_widths = compute_widths_up(G, root) | compute_widths_down_part(G, root)
+        node_widths = compute_widths_related(G, root)
+
+        print(node_widths)
 
 
 
