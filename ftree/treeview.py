@@ -65,31 +65,20 @@ class TreeView(pgbase.canvas2d.Window2D):
 ##        G = nx.DiGraph()
 ##        G.add_edge(2, 1)
 ##        G.add_edge(3, 1)
-##        G.add_edge(4, 1)
 ##
+##        G.add_edge(4, 2)
 ##        G.add_edge(5, 2)
-##        G.add_edge(6, 2)
-##        G.add_edge(7, 2)
 ##
-##        G.add_edge(8, 3)
-##        G.add_edge(9, 3)
-##        G.add_edge(10, 3)
+##        G.add_edge(6, 3)
+##        G.add_edge(7, 3)
 ##
-##        G.add_edge(11, 4)
-##        G.add_edge(12, 4)
-##        G.add_edge(13, 4)
+##        G.add_edge(7, 8)
+##        G.add_edge(7, 9)
+##        G.add_edge(9, 13)
 ##
-##        G.add_edge(5, 14)
-##        G.add_edge(6, 15)
-##        G.add_edge(7, 16)
-##        
-##        G.add_edge(8, 17)
-##        G.add_edge(9, 18)
-##        G.add_edge(10, 19)
-##        
-##        G.add_edge(11, 20)
-##        G.add_edge(12, 21)
-##        G.add_edge(13, 22)
+##        G.add_edge(6, 10)
+##        G.add_edge(6, 11)
+##        G.add_edge(11, 12)
     
 
         G = self.tree.digraph()
@@ -154,7 +143,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                 m = math.inf
                 for a, b in itertools.product(rw1.keys(), rw2.keys()):
 ##                    assert a != b
-                    if abs(node_heights[a] - node_heights[b]) < 1:
+                    if abs(node_heights[a] - node_heights[b]) < 0.99:
                         m = min(m, rw2[b] - rw1[a] - 1)
                 if m is math.inf:
                     return center(rw1, 0) | center(rw2, 0)
@@ -192,39 +181,106 @@ class TreeView(pgbase.canvas2d.Window2D):
                     bots.append(compute_widths_down_part(G, n, minh = minh))            
             return center(stack(tops), 0) | center(stack(bots), 0)
 
-        def compute_widths_related(G, node, base = None, minh_left = -math.inf, minh_right = -math.inf):
-            if base is None:
-                base = compute_widths_down_part(G, node)
-            assert node in base
-            preds = list(G.predecessors(node))
 
-            minh_mid = node_heights[node] + 1.5
+##        def compute_widths_related_thin(G, node, minh_left = -math.inf, minh_right = -math.inf):
+##            return {node : 0} | center(stack([compute_widths_up(G, n) for n in G.predecessors(node)]), 0)
+        
 
-            downs = [base]
-            for i, x in enumerate(preds):
-                if i == 0:
-                    sub_bases = [compute_widths_down_part(G, y, minh = minh_left) for y in G.successors(x) if not y is node]
-                    downs = sub_bases + downs
-                elif i == len(preds) - 1:
-                    sub_bases = [compute_widths_down_part(G, y, minh = minh_right) for y in G.successors(x) if not y is node]
-                    downs = sub_bases + downs
-                else:
-                    sub_bases = [compute_widths_down_part(G, y, minh = minh_mid) for y in G.successors(x) if not y is node]
-                    downs = downs + sub_bases
-            new_base = stack(downs)
+##        def compute_widths_related_thick_init(G, node):
+##            pred_lookup = {x : list(G.predecessors(x)) for x in G.nodes()}
+##            
+##            def compute_widths_related_thick(G, node, base, minh_left, minh_right):            
+##                assert node in base
+##                preds = pred_lookup[node]
+##                minh_mid = node_heights[node] + 0.99
+##                tops = []
+##                for i, n in enumerate(preds):
+##                    if i == 0:
+##                        tops.append(compute_widths_related_thick(G, n, {n : 0}, minh_left = math.inf, minh_right = minh_mid))
+##                    elif i == len(preds) - 1:
+##                        tops.append(compute_widths_related_thick(G, n, {n : 0}, minh_left = minh_mid, minh_right = math.inf))
+##                    else:
+##                        tops.append(compute_widths_related_thick(G, n, {n : 0}, minh_left = minh_mid, minh_right = minh_mid))
+##
+##                def yield_left_side(x):
+##                    ps = pred_lookup[x]
+##                    if len(ps) >= 1:
+##                        yield x, ps[0]
+##                        yield from yield_left_side(ps[0])
+##
+##                def yield_right_side(x):
+##                    ps = pred_lookup[x]
+##                    if len(ps) >= 1:
+##                        yield x, ps[-1]
+##                        yield from yield_right_side(ps[-1])
+##
+##                def everything_above(x):
+##                    H = G.copy()
+##                    H.remove_node(x)
+##                    above = set([x])
+##                    for a in G.predecessors(x):
+##                        above |= set(nx.node_connected_component(H.to_undirected(), a))
+##                    return above
+##                    
+##
+##                if len(preds) >= 1:
+##                    for a, b in yield_left_side(node):
+##                        hang_left = []
+##                        for x in G.successors(b):
+##                            if not x is a:
+##                                hang_left.append(compute_widths_down_part(G, x, minh = minh_left))
+##                        tops[0] = stack(hang_left + [tops[0]])
+####                        ws = [tops[0][x] for x in G.successors(b) if x in tops[0]]
+####                        if len(ws) != 0:
+####                            off = min(sum(ws) / len(ws) - tops[0][b], 0)
+####                            for x in everything_above(b):
+####                                if x in tops[0]:
+####                                    tops[0][x] += off
+##                        
+##                    if len(preds) >= 2:
+##                        for a, b in yield_right_side(node):
+##                            hang_right = []
+##                            for x in G.successors(b):
+##                                if not x is a:
+##                                    hang_right.append(compute_widths_down_part(G, x, minh = minh_right))
+##                            tops[-1] = stack([tops[-1]] + hang_right)
+####                            ws = [tops[-1][x] for x in G.successors(b) if x in tops[-1]]
+####                            if len(ws) != 0:
+####                                off = max(sum(ws) / len(ws) - tops[-1][b], 0)
+####                                for x in everything_above(b):
+####                                    if x in tops[-1]:
+####                                        tops[-1][x] += off
+##
+##                return match(node, base, center(stack(tops), 0) | {node : 0})
+##
+##                #return stack(list(reversed(hang_left)) + [mid] + hang_right)
+##                        
+####            return compute_widths_related_thick(G, node, {node : 0.0}, -math.inf, -math.inf)
+##            return compute_widths_related_thick(G, node, compute_widths_down_part(G, node), -math.inf, -math.inf)
 
-            tops = []
-            for i, x in enumerate(preds):
-                if i == 0:
-                    top = compute_widths_related(G, x, new_base, minh_left = minh_left, minh_right = minh_mid)
-                elif i == len(preds) - 1:
-                    top = compute_widths_related(G, x, new_base, minh_left = minh_mid, minh_right = minh_right)
-                else:
-                    top = compute_widths_related(G, x, new_base, minh_left = minh_mid, minh_right = minh_mid)
-                tops.append(top)
-            
-            return new_base | center(stack(tops), 0)
-                                
+
+        def compute_widths_related(G, node):
+            pred_lookup = {x : list(G.predecessors(x)) for x in G.nodes()}
+
+            def compute_mid(G, node, base, minh_left, minh_right):
+                assert node in base
+                preds = pred_lookup[node]
+                minh_mid = node_heights[node] + 0.99
+                
+                tops = []
+                for i, n in enumerate(preds):
+                    if i == 0:
+                        tops.append(compute_mid(G, n, {n : 0}, minh_left = minh_left, minh_right = minh_mid))
+                    elif i == len(preds) - 1:
+                        tops.append(compute_mid(G, n, {n : 0}, minh_left = minh_mid, minh_right = minh_right))
+                    else:
+                        tops.append(compute_mid(G, n, {n : 0}, minh_left = minh_mid, minh_right = minh_mid))
+
+                return center(stack(tops), 0.0) | {node : 0.0}
+                        
+                    
+            return compute_mid(G, node, compute_widths_down_part(G, node), -math.inf, -math.inf)
+        
                             
         def compute_widths_up(G, node):
             return {node : 0} | center(stack([compute_widths_up(G, n) for n in G.predecessors(node)]), 0)
@@ -233,12 +289,14 @@ class TreeView(pgbase.canvas2d.Window2D):
             return {node : 0} | center(stack([compute_widths_down(G, n) for n in G.successors(node)]), 0)
             
 
-
-
         root = max(G.nodes(), key = lambda x : len(nx.ancestors(G, x)))
-        for _ in range(3):
+        for _ in range(6):
             root = next(iter(G.predecessors(root)))
 ##        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
+
+        T = nx.bfs_tree(G.to_undirected(), root)
+        G = G.edge_subgraph(itertools.chain(T.edges(), [(e[1], e[0]) for e in T.edges()]))
+        
         node_widths = compute_widths_related(G, root)
 
         print(node_widths)
