@@ -7,7 +7,6 @@ ftree.run()
 
 ##import polytopes
 ##polytopes.example()
-6
 
 
 ##import rsphere
