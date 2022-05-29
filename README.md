@@ -5,6 +5,7 @@ Implements depth peeling for order dependent transparency when rendering in 3d.
 ## Mandelbrot Set
 Renders the mandelbrot using double-precision floating-point values in GLSL.
 Includes quality of life features such as itterative deepening and saving previously rendered portions as textures to be drawn over areas where a new render has not yet been performed.
+![Capture](https://user-images.githubusercontent.com/11195846/170892291-152ace4d-a685-4692-bf91-c6b59557e4f5.PNG)
 ## Sphere Texture
 Draws a sphere with a texture
 ## Polytopes
