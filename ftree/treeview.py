@@ -142,7 +142,7 @@ class TreeView(pgbase.canvas2d.Window2D):
             def stack_pair(rw1, rw2):
                 m = math.inf
                 for a, b in itertools.product(rw1.keys(), rw2.keys()):
-##                    assert a != b
+                    assert a != b
                     if abs(node_heights[a] - node_heights[b]) < 0.99:
                         m = min(m, rw2[b] - rw1[a] - 1)
                 if m is math.inf:
@@ -188,19 +188,45 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         def compute_widths_related_thick_init(G, node):
             pred_lookup = {x : list(G.predecessors(x)) for x in G.nodes()}
-            
-            def compute_widths_related_thick(G, node, base, minh_left, minh_right):            
-                assert node in base
+
+            def compute_upwards(G, node):
                 preds = pred_lookup[node]
                 minh_mid = node_heights[node] + 0.99
                 tops = []
                 for i, n in enumerate(preds):
                     if i == 0:
-                        tops.append(compute_widths_related_thick(G, n, {n : 0}, minh_left = math.inf, minh_right = minh_mid))
+                        tops.append(compute_upwards_left(G, n))
                     elif i == len(preds) - 1:
-                        tops.append(compute_widths_related_thick(G, n, {n : 0}, minh_left = minh_mid, minh_right = math.inf))
+                        tops.append(compute_upwards_right(G, n))
                     else:
-                        tops.append(compute_widths_related_thick(G, n, {n : 0}, minh_left = minh_mid, minh_right = minh_mid))
+                        tops.append(compute_whole(G, n, {n : 0.0}, minh_left = minh_mid, minh_right = minh_mid))
+                return center(stack(tops), 0) | {node : 0}
+
+            def compute_upwards_left(G, node):
+                preds = pred_lookup[node]
+                minh_mid = node_heights[node] + 0.99
+                tops = []
+                for i, n in enumerate(preds):
+                    if i == 0:
+                        tops.append(compute_upwards_left(G, n))
+                    else:
+                        tops.append(compute_whole(G, n, {n : 0.0}, minh_left = minh_mid, minh_right = minh_mid))
+                return center(stack(tops), 0) | {node : 0}
+
+            def compute_upwards_right(G, node):
+                preds = pred_lookup[node]
+                minh_mid = node_heights[node] + 0.99
+                tops = []
+                for i, n in enumerate(preds):
+                    if i == len(preds) - 1:
+                        tops.append(compute_upwards_right(G, n))
+                    else:
+                        tops.append(compute_whole(G, n, {n : 0.0}, minh_left = minh_mid, minh_right = minh_mid))
+                return center(stack(tops), 0) | {node : 0}
+
+            def compute_whole(G, node, base, minh_left, minh_right):
+                assert node in base
+                core = match(node, compute_upwards(G, node), base)
 
                 def yield_left_side(x):
                     ps = pred_lookup[x]
@@ -214,23 +240,14 @@ class TreeView(pgbase.canvas2d.Window2D):
                         yield x, ps[-1]
                         yield from yield_right_side(ps[-1])
 
-                def everything_above(x):
-                    H = G.copy()
-                    H.remove_node(x)
-                    above = set([x])
-                    for a in G.predecessors(x):
-                        above |= set(nx.node_connected_component(H.to_undirected(), a))
-                    return above
-
-                mid = match(node, base, center(stack(tops), 0) | {node : 0})
-                    
+                preds = pred_lookup[node]
                 if len(preds) >= 1:
-                    for a, b in yield_left_side(node):
+                    for a, b in yield_left_side(node):   
                         hang_left = []
                         for x in G.successors(b):
                             if not x is a:
                                 hang_left.append(compute_widths_down_part(G, x, minh = minh_left))
-                        mid = stack(hang_left + [mid])
+                        core = stack(hang_left + [core])
                         
                     if len(preds) >= 2:
                         for a, b in yield_right_side(node):
@@ -238,11 +255,12 @@ class TreeView(pgbase.canvas2d.Window2D):
                             for x in G.successors(b):
                                 if not x is a:
                                     hang_right.append(compute_widths_down_part(G, x, minh = minh_right))
-                            mid = stack([mid] + hang_right)
+                        core = stack([core] + hang_right)
+                
+                return core
 
-                return mid
+            return compute_whole(G, node, compute_widths_down_part(G, node), -math.inf, -math.inf)
 
-            return compute_widths_related_thick(G, node, compute_widths_down_part(G, node), -math.inf, -math.inf)
 
 
                   
@@ -256,6 +274,7 @@ class TreeView(pgbase.canvas2d.Window2D):
         root = max(G.nodes(), key = lambda x : len(nx.ancestors(G, x)))
         for _ in range(6):
             root = next(iter(G.predecessors(root)))
+##        root = list(G.predecessors(root))[1]
 ##        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
 
         T = nx.bfs_tree(G.to_undirected(), root)
