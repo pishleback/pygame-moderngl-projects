@@ -33,6 +33,10 @@ class ShapelyModel():
         self.vao = None
         self.update_vao()
 
+    def clear(self):
+        self.polygons =[]
+        self.update_vao()
+
     def add_shape(self, shape, colour = (1, 0, 1, 1)):
         if type(shape) == shapely.geometry.Polygon:
             self.polygons.append(ShapelyModel.Polygon(shape, colour))
@@ -44,7 +48,6 @@ class ShapelyModel():
 
     def update_vao(self):
         import time
-
         def gen_triangles():
             vert_offset = 0
             all_verts = []
