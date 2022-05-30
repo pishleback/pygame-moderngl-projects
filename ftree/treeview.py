@@ -83,9 +83,15 @@ class TreeView(pgbase.canvas2d.Window2D):
 ##        G.add_edge(14, 6)
 ##        G.add_edge(14, 15)
 ##        G.add_edge(15, 16)
+##
+##        G.add_edge(15, 1)
+##
+##        self.G = G
     
-
         self.G = self.tree.digraph()
+        tr = nx.bfs_tree(self.G.to_undirected(), next(iter(self.G.nodes)))
+        self.T = self.G.edge_subgraph(itertools.chain(tr.edges(), [(e[1], e[0]) for e in tr.edges()]))
+        
         
         oriented_cycles = [list(zip(nodes,(nodes[1:] + nodes[:1]))) for nodes in nx.cycle_basis(self.G.to_undirected())]
         edges = list(self.G.edges())
@@ -115,7 +121,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                 dh = edge_lengths[(edge[1], edge[0])]
             node_heights[edge[1]] = node_heights[edge[0]] + dh
 
-        self.node_heights = {node : 2 * h for node, h in node_heights.items()}
+        self.node_heights = {node : h for node, h in node_heights.items()}
         
         #set by self.set_node_widths():
         self.root = None
@@ -127,6 +133,7 @@ class TreeView(pgbase.canvas2d.Window2D):
             root = next(iter(G.predecessors(root)))
 ##        root = list(G.predecessors(root))[1]
 ##        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
+
 
         self.set_node_widths(root)
 
@@ -216,9 +223,10 @@ class TreeView(pgbase.canvas2d.Window2D):
         
 
         def compute_widths_related(G, node):
-            #remove some edges so that G is a tree
-            T = nx.bfs_tree(G.to_undirected(), root)
-            G = G.edge_subgraph(itertools.chain(T.edges(), [(e[1], e[0]) for e in T.edges()]))
+##            #remove some edges so that G is a tree
+##            T = nx.bfs_tree(G.to_undirected(), root)
+##            G = G.edge_subgraph(itertools.chain(T.edges(), [(e[1], e[0]) for e in T.edges()]))
+            assert nx.is_tree(G.to_undirected())
 
             #decide on an order for things
             pred_lookup = {x : list(G.predecessors(x)) for x in G.nodes()}
@@ -325,7 +333,7 @@ class TreeView(pgbase.canvas2d.Window2D):
             return {node : 0} | center(stack([compute_widths_down(G, n) for n in G.successors(node)]), 0)
 
         self.root = root
-        self.node_widths = compute_widths_related(self.G, root)
+        self.node_widths = compute_widths_related(self.T, root)
         self.more_to_see_nodes = set([])
         for node in self.node_widths:
             for x in itertools.chain(self.G.successors(node), self.G.predecessors(node)):
@@ -334,10 +342,11 @@ class TreeView(pgbase.canvas2d.Window2D):
         
         self.update_shapes_vao()
 
+    def node_pos(self, node):
+        return [self.node_widths[node], 2 * self.node_heights[node]]
+
     def update_shapes_vao(self):
         G = self.G.subgraph(self.node_widths.keys())
-        node_heights = self.node_heights
-        node_widths = self.node_widths
 
 ##        node_widths = {n : w + random.uniform(-0.1, 0.1) for n, w in node_widths.items()}
 ##        node_heights = {n : h + random.uniform(-0.1, 0.1) for n, h in node_heights.items()}
@@ -359,13 +368,18 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         self.shapes.clear()
 
+        tree_edges = set(self.T.edges())
+
         for x, y in G.edges():
-            p0 = [node_widths[x], node_heights[x]]
-            p1 = [node_widths[x], node_heights[x] - 0.25]
-            p2 = [node_widths[x], node_heights[x] - 1]
-            p3 = [node_widths[y], node_heights[y] + 1]
-            p4 = [node_widths[y], node_heights[y] + 0.25]
-            p5 = [node_widths[y], node_heights[y]]
+            x_pos = self.node_pos(x)
+            y_pos = self.node_pos(y)
+            
+            p0 = [x_pos[0], x_pos[1]]
+            p1 = [x_pos[0], x_pos[1] - 0.25]
+            p2 = [x_pos[0], x_pos[1] - 1]
+            p3 = [y_pos[0], y_pos[1] + 1]
+            p4 = [y_pos[0], y_pos[1] + 0.25]
+            p5 = [y_pos[0], y_pos[1]]
 
             def bez(pts, f):
                 if len(pts) == 1:
@@ -384,22 +398,26 @@ class TreeView(pgbase.canvas2d.Window2D):
                     yield f
                     f += 0.01 + 0.1 * (math.cos(math.pi * (2 * f - 1)) + 1) / 2
                 yield 1.0
-                    
-            colour = (0, 0.5, 1, 1)
+
+            if (x, y) in tree_edges:
+                colour = (0, 0.5, 1, 1)
+            else:
+                colour = (0, 1, 1, 1)
+            
             self.shapes.add_shape(shapely.geometry.LineString([p0] + [bez([p1, p2, p3, p4], f) for f in gen_f()] + [p5]).buffer(0.05), colour)
 
         for x in G.nodes():
             if x in self.more_to_see_nodes:
                 colour = (0, 0.5, 1, 1)
-                self.shapes.add_shape(shapely.geometry.Point([node_widths[x], node_heights[x]]).buffer(0.3), colour)
+                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.3), colour)
             
         for x in G.nodes():
             colour = (1, 1, 0, 1)
             if x == self.root:
                 colour = (1, 0, 0, 1)
-            elif type(self.tree.entity_lookup[x]) == treedata.Partnership:
+            elif (type(self.tree.entity_lookup[x]) == treedata.Partnership if x in self.tree.entity_lookup else False):
                 colour = (0, 0.5, 1, 1)
-            self.shapes.add_shape(shapely.geometry.Point([node_widths[x], node_heights[x]]).buffer(0.2), colour)
+            self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.2), colour)
             
         self.shapes.update_vao()
 
@@ -414,13 +432,13 @@ class TreeView(pgbase.canvas2d.Window2D):
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 pos = self.pygame_to_world(event.pos)                    
-                node = min(self.node_widths.keys(), key = lambda node : dist(pos, [self.node_widths[node], self.node_heights[node]]))
-                node_pos = [self.node_widths[node], self.node_heights[node]]
+                node = min(self.node_widths.keys(), key = lambda node : dist(pos, self.node_pos(node)))
+                node_pos = self.node_pos(node)
                 scr_node_pos = self.world_to_pygame(node_pos)
                 
                 if dist(event.pos, scr_node_pos) < 50:
                     self.set_node_widths(node)
-                    self.center = self.center - np.array(node_pos) + np.array([self.node_widths[node], self.node_heights[node]])
+                    self.center = self.center - np.array(node_pos) + np.array(self.node_pos(node))
                     
             
     def draw(self):
