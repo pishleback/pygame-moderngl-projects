@@ -10,26 +10,26 @@ import itertools
 import scipy.optimize
 import scipy.spatial
 import math
-from ftree import shapelayout
 
 
 
 
-def entity_format(entity):    
-    if type(entity) == treedata.Person:
-        sex = entity.get_sex()
-        if sex == "male":
-            colour = (0, 0.5, 1, 1)
-        elif sex == "female":
-            colour = (1, 0.5, 0.5, 1)
-        else:
-            colour = (1, 0.5, 0, 1)
-        name = " ".join(entity.get_first_names())
-        return shapelayout.height_frame(shapelayout.string((name if len(name) != 0 else "?"), (0, 0, 0, 1)), 0.9, colour)
-    elif type(entity) == treedata.Partnership:
-        return shapelayout.height_frame(shapelayout.letter("M", (0, 0, 0, 1)), 0.9, (0.7, 0.7, 0, 1))
-    else:
-        return shapelayout.height_frame(shapelayout.letter("?", (0, 0, 0, 1)), 0.9)
+##from ftree import shapelayout
+##def entity_format(entity):    
+##    if type(entity) == treedata.Person:
+##        sex = entity.get_sex()
+##        if sex == "male":
+##            colour = (0, 0.5, 1, 1)
+##        elif sex == "female":
+##            colour = (1, 0.5, 0.5, 1)
+##        else:
+##            colour = (1, 0.5, 0, 1)
+##        name = " ".join(entity.get_first_names())
+##        return shapelayout.height_frame(shapelayout.string((name if len(name) != 0 else "?"), (0, 0, 0, 1)), 0.9, colour)
+##    elif type(entity) == treedata.Partnership:
+##        return shapelayout.height_frame(shapelayout.letter("M", (0, 0, 0, 1)), 0.9, (0.7, 0.7, 0, 1))
+##    else:
+##        return shapelayout.height_frame(shapelayout.letter("?", (0, 0, 0, 1)), 0.9)
 
 
 
@@ -39,7 +39,7 @@ class TreeView(pgbase.canvas2d.Window2D):
         super().__init__(*args, **kwargs)
         self.tree = tree
 
-        self.prog = self.ctx.program(
+        self.bg_prog = self.ctx.program(
             vertex_shader = """
                 #version 430
                 in vec2 unit_pos;
@@ -75,49 +75,227 @@ class TreeView(pgbase.canvas2d.Window2D):
         )
         vertices = self.ctx.buffer(np.array([[-1, -1], [1, -1], [-1, 1], [1, 1]]).astype('f4'))
         indices = self.ctx.buffer(np.array([[0, 1, 3], [0, 2, 3]]))
-        self.vao = self.ctx.vertex_array(self.prog,
+        self.bg_vao = self.ctx.vertex_array(self.bg_prog,
                                          [(vertices, "2f4", "unit_pos")],
                                          indices)
 
 
-        import random
-        self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
+        self.entity_prog = self.ctx.program(
+            vertex_shader = """
+                #version 430
+                in vec2 pos;
+                out vec2 g_pos;
+
+                void main() {
+                    g_pos = pos;
+                }
+            """,
+            geometry_shader = """
+                #version 430
+                layout (points) in;
+                layout (triangle_strip, max_vertices = 100) out;
+                in vec2 g_pos[];
+
+                uniform vec2 cam_center;
+                uniform mat2 cam_mat_inv;
+
+                void main() {
+                    vec2 pos;
+
+                    float side = 0.4;
+                    
+                    pos = g_pos[0] + vec2(-side, -side);
+                    gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
+                    EmitVertex();
+                    pos = g_pos[0] + vec2(side, -side);
+                    gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
+                    EmitVertex();
+                    pos = g_pos[0] + vec2(side, side);
+                    gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
+                    EmitVertex();
+                    EndPrimitive();
+
+                    pos = g_pos[0] + vec2(-side, -side);
+                    gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
+                    EmitVertex();
+                    pos = g_pos[0] + vec2(-side, side);
+                    gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
+                    EmitVertex();
+                    pos = g_pos[0] + vec2(side, side);
+                    gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
+                    EmitVertex();
+                    EndPrimitive();
+                }
+            """,
+            fragment_shader = """
+                #version 430
+                out vec4 f_colour;
+
+                void main() {
+                    f_colour = vec4(1, 0.5, 0, 1);
+                }
+    
+            """,
+        )
+        vertices = self.ctx.buffer(np.array([[0, 0]]).astype('f4'))
+        indices = self.ctx.buffer(np.array([0]))
+        self.entity_vao = self.ctx.vertex_array(self.entity_prog,
+                                                [(vertices, "2f4", "pos")],
+                                                indices)
+
+        self.edge_prog = self.ctx.program(
+            vertex_shader = """
+                #version 430
+                in vec2 top_pos;
+                in vec2 bot_pos;
+                in vec4 colour;
+                out vec2 g_top_pos;
+                out vec2 g_bot_pos;
+                out vec4 g_colour;
+
+                void main() {
+                    g_top_pos = top_pos;
+                    g_bot_pos = bot_pos;
+                    g_colour = colour;
+                }
+            """,
+            geometry_shader = """
+                #version 430
+                layout (points) in;
+                layout (triangle_strip, max_vertices = 128) out;
+                in vec2 g_top_pos[];
+                in vec2 g_bot_pos[];
+                in vec4 g_colour[];
+                out vec4 g_colour_out;
+
+                uniform vec2 cam_center;
+                uniform mat2 cam_mat_inv;
+
+                float width = 0.1;
+
+                vec4 pos_to_gl(vec2 pos) {
+                    return vec4(cam_mat_inv * (pos - cam_center), 0, 1);
+                }
+
+                void emit_line(vec2 p1, vec2 p2) {
+                    vec2 vec = p2 - p1;
+                    vec2 norm = width * normalize(vec2(-vec.y, vec.x));
+                    
+                    gl_Position = pos_to_gl(p1 + norm);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p1 - norm);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p2 - norm);
+                    EmitVertex();
+                    EndPrimitive();
+
+                    gl_Position = pos_to_gl(p1 + norm);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p2 + norm);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p2 - norm);
+                    EmitVertex();
+                    EndPrimitive();
+                }
+
+                void emit_joint(vec2 p1, vec2 p2, vec2 p3) {
+                    vec2 vec12 = p2 - p1;
+                    vec2 norm12 = width * normalize(vec2(-vec12.y, vec12.x));
+                    vec2 vec23 = p3 - p2;
+                    vec2 norm23 = width * normalize(vec2(-vec23.y, vec23.x));
+
+                    gl_Position = pos_to_gl(p2);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p2 + norm12);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p2 + norm23);
+                    EmitVertex();
+                    EndPrimitive();
+
+                    gl_Position = pos_to_gl(p2);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p2 - norm12);
+                    EmitVertex();
+                    gl_Position = pos_to_gl(p2 - norm23);
+                    EmitVertex();
+                    EndPrimitive();
+                }
+
+                float bez2(float f, float a, float b) {
+                    return a + f * (b - a);
+                }
+
+                float bez3(float f, float a, float b, float c) {
+                    return bez2(f, a + f * (b - a), b + f * (c - b));
+                }
+
+                float bez4(float f, float a, float b, float c, float d) {
+                    return bez3(f, a + f * (b - a), b + f * (c - b), c + f * (d - c));
+                }
+
+                void main() {
+                    g_colour_out = g_colour[0];
+                    
+                    const int n = 10;
+                    const float pi = 3.1415926535897932384626433;
+                    
+                    vec2[n+2] pts;
+                    
+                    vec2 p0 = g_top_pos[0];
+                    vec2 p1 = g_top_pos[0] - vec2(0, 0.5);
+                    vec2 p2 = g_top_pos[0] - vec2(0, 1);
+                    vec2 p3 = g_bot_pos[0] + vec2(0, 1);
+                    vec2 p4 = g_bot_pos[0] + vec2(0, 0.5);
+                    vec2 p5 = g_bot_pos[0];
+
+                    pts[0] = p0;
+                    pts[n+1] = p5;
+
+                    for (int i = 0; i < n; i++) {
+                        float f = float(i) / float(n - 1);
+                        f = 0.5 * (sin(pi * (f - 0.5)) + 1);
+                        pts[i+1] = vec2(bez4(f, p1.x, p2.x, p3.x, p4.x), bez4(f, p1.y, p2.y, p3.y, p4.y));
+                    }
+
+                    for (int i = 0; i < n+1; i++) {
+                        emit_line(pts[i], pts[i+1]);
+                    }
+
+                    for (int i = 0; i < n; i++) {
+                        emit_joint(pts[i], pts[i+1], pts[i+2]);
+                    }
+                    
+                }
+            """,
+            fragment_shader = """
+                #version 430
+                in vec4 g_colour_out;
+                out vec4 f_colour;
+
+                void main() {
+                    f_colour = g_colour_out;
+                }
+    
+            """,
+        )
+        buffer_top_vertices = self.ctx.buffer(np.array([[1, 1]]).astype('f4'))
+        buffer_bot_vertices = self.ctx.buffer(np.array([[0, 0]]).astype('f4'))
+        indices = self.ctx.buffer(np.array([0]))
+        self.edge_vao = self.ctx.vertex_array(self.edge_prog,
+                                                [(buffer_top_vertices, "2f4", "top_pos"),
+                                                 (buffer_bot_vertices, "2f4", "bot_pos")],
+                                                indices)
+
+        
+
+
+##        self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
         
         self.root = None
         self.node_widths = {}
         self.node_heights = {}
         self.more_to_see_nodes = set([])
         self.cycle_edges = set([])
-
-        self.entity_fmts = {ident : entity_format(self.tree.entity_lookup[ident]) for ident in self.tree.entity_lookup}
-        
-
-        
-##        G = nx.DiGraph()
-##        G.add_edge(2, 1)
-##        G.add_edge(3, 1)
-##
-##        G.add_edge(4, 2)
-##        G.add_edge(5, 2)
-##
-##        G.add_edge(6, 3)
-##        G.add_edge(7, 3)
-##
-##        G.add_edge(7, 8)
-##        G.add_edge(7, 9)
-##        G.add_edge(9, 13)
-##
-##        G.add_edge(6, 10)
-##        G.add_edge(6, 11)
-##        G.add_edge(11, 12)
-##
-##        G.add_edge(14, 6)
-##        G.add_edge(14, 15)
-##        G.add_edge(15, 16)
-##
-##        G.add_edge(15, 1)
-##
-##        self.G = G
     
         self.G = self.tree.digraph()
         self.T = nx.DiGraph()
@@ -125,8 +303,6 @@ class TreeView(pgbase.canvas2d.Window2D):
         root = max(self.G.nodes(), key = lambda x : len(nx.ancestors(self.G, x)))
         for _ in range(0):
             root = next(iter(G.predecessors(root)))
-##        root = list(G.predecessors(root))[1]
-##        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
 
         self.set_root(root)
 
@@ -371,95 +547,129 @@ class TreeView(pgbase.canvas2d.Window2D):
                 if not x in self.node_widths:
                     self.more_to_see_nodes.add(node)
         
-        self.update_shapes_vao()
+##        self.update_shapes_vao()
+        self.update_vaos()
 
     def node_pos(self, node):
         return [self.node_widths[node], 2 * self.node_heights[node]]
 
-    def update_shapes_vao(self):
-        G = self.G.subgraph(self.node_widths.keys())
-
-##        node_widths = {n : w + random.uniform(-0.1, 0.1) for n, w in node_widths.items()}
-##        node_heights = {n : h + random.uniform(-0.1, 0.1) for n, h in node_heights.items()}
+    def update_vaos(self):
+        import random
         
-##        for x in G.nodes():
-##            if type(self.tree.entity_lookup[x]) == treedata.Partnership:
-##                adj = list(G.successors(x)) + list(G.predecessors(x))
-##                w0, w1 = min(node_widths[y] for y in adj), max(node_widths[y] for y in adj)
-##                h = node_heights[x]
-##                colour = (1, 0, 0, 1)                
-##                self.shapes.add_shape(shapely.geometry.LineString([[w0, h], [w1, h]]).buffer(0.05), colour)
-##                for a in adj:
-##                    w = node_widths[a]
-##                    self.shapes.add_shape(shapely.geometry.LineString([[w, node_heights[a]], [w, h]]).buffer(0.05), colour)
-##        for x in G.nodes():
-##            if type(self.tree.entity_lookup[x]) == treedata.Person:
-##                colour = (0, 1, 1, 1)                
-##                self.shapes.add_shape(shapely.geometry.Point([node_widths[x], node_heights[x]]).buffer(0.2), colour)
+        H = self.G.subgraph(self.node_widths.keys())
 
-        self.shapes.clear()
+        nodes = list(H.nodes)        
+        buffer_vertices = self.ctx.buffer(np.array([self.node_pos(node) for node in nodes]).astype('f4'))
+        buffer_indices = self.ctx.buffer(np.array(range(len(nodes))))
+        self.entity_vao = self.ctx.vertex_array(self.entity_prog,
+                                                [(buffer_vertices, "2f4", "pos")],
+                                                buffer_indices)
 
+        colour_tree_edge = [0, 0, 0, 1]
+        colour_loop_edge = [1, 0, 1, 1]
         tree_edges = set(self.T.edges())
 
-        for x, y in G.edges():
-            x_pos = self.node_pos(x)
-            y_pos = self.node_pos(y)
-            
-            p0 = [x_pos[0], x_pos[1]]
-            p1 = [x_pos[0], x_pos[1] - 0.5]
-            p2 = [x_pos[0], x_pos[1] - 1]
-            p3 = [y_pos[0], y_pos[1] + 1]
-            p4 = [y_pos[0], y_pos[1] + 0.5]
-            p5 = [y_pos[0], y_pos[1]]
+        edges = list(H.edges())
+        buffer_top_vertices = self.ctx.buffer(np.array([self.node_pos(edge[0]) for edge in edges]).astype('f4'))
+        buffer_bot_vertices = self.ctx.buffer(np.array([self.node_pos(edge[1]) for edge in edges]).astype('f4'))
+        buffer_colours = self.ctx.buffer(np.array([(colour_tree_edge if edge in tree_edges else colour_loop_edge) for edge in edges]).astype('f4'))
+        indices = self.ctx.buffer(np.array(range(len(edges))))
+        self.edge_vao = self.ctx.vertex_array(self.edge_prog,
+                                                [(buffer_top_vertices, "2f4", "top_pos"),
+                                                 (buffer_bot_vertices, "2f4", "bot_pos"),
+                                                 (buffer_colours, "4f4", "colour")],
+                                                indices)
 
-            def bez(pts, f):
-                if len(pts) == 1:
-                    return pts[0]
-                else:
-                    sub_pts = []
-                    for i in range(len(pts) - 1):
-                        p1 = pts[i]
-                        p2 = pts[i + 1]
-                        sub_pts.append([p1[j] + f * (p2[j] - p1[j]) for j in [0, 1]])
-                    return bez(sub_pts, f)
-
-            def gen_f():
-                f = 0.0
-                while f < 1:
-                    yield f
-                    f += 0.01 + 0.1 * (math.cos(math.pi * (2 * f - 1)) + 1) / 2
-                yield 1.0
-
-            if (x, y) in tree_edges:
-                colour = (0, 0, 0, 1)
-            else:
-                colour = (0.5, 0.5, 0.5, 1)
-            
-            self.shapes.add_shape(shapely.geometry.LineString([p0] + [bez([p1, p2, p3, p4], f) for f in gen_f()] + [p5]).buffer(0.1), colour)
-
-        for x in G.nodes():
-            if x in self.more_to_see_nodes:
-                colour = (0, 0, 0, 1)
-                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.5), colour)
-            
-        for x in G.nodes():
-            if x == self.root:
-                rad = 0.45
-                colour = (1, 0, 0, 1)
-                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
-                
-            elif (type(self.tree.entity_lookup[x]) in {treedata.Person, treedata.Partnership } if x in self.tree.entity_lookup else False):                
-                fmt = shapelayout.position_frame(self.entity_fmts[x], self.node_pos(x))
-                for geom, colour in fmt.gen_shapes():
-                    self.shapes.add_shape(geom, colour)
-
-                    
+##    def update_shapes_vao(self):
+##        G = self.G.subgraph(self.node_widths.keys())
+##
+####        node_widths = {n : w + random.uniform(-0.1, 0.1) for n, w in node_widths.items()}
+####        node_heights = {n : h + random.uniform(-0.1, 0.1) for n, h in node_heights.items()}
+##        
+####        for x in G.nodes():
+####            if type(self.tree.entity_lookup[x]) == treedata.Partnership:
+####                adj = list(G.successors(x)) + list(G.predecessors(x))
+####                w0, w1 = min(node_widths[y] for y in adj), max(node_widths[y] for y in adj)
+####                h = node_heights[x]
+####                colour = (1, 0, 0, 1)                
+####                self.shapes.add_shape(shapely.geometry.LineString([[w0, h], [w1, h]]).buffer(0.05), colour)
+####                for a in adj:
+####                    w = node_widths[a]
+####                    self.shapes.add_shape(shapely.geometry.LineString([[w, node_heights[a]], [w, h]]).buffer(0.05), colour)
+####        for x in G.nodes():
+####            if type(self.tree.entity_lookup[x]) == treedata.Person:
+####                colour = (0, 1, 1, 1)                
+####                self.shapes.add_shape(shapely.geometry.Point([node_widths[x], node_heights[x]]).buffer(0.2), colour)
+##
+##        self.shapes.clear()
+##
+##        tree_edges = set(self.T.edges())
+##
+##        for x, y in G.edges():
+##            x_pos = self.node_pos(x)
+##            y_pos = self.node_pos(y)
+##            
+##            p0 = [x_pos[0], x_pos[1]]
+##            p1 = [x_pos[0], x_pos[1] - 0.5]
+##            p2 = [x_pos[0], x_pos[1] - 1]
+##            p3 = [y_pos[0], y_pos[1] + 1]
+##            p4 = [y_pos[0], y_pos[1] + 0.5]
+##            p5 = [y_pos[0], y_pos[1]]
+##
+##            def bez(pts, f):
+##                if len(pts) == 1:
+##                    return pts[0]
+##                else:
+##                    sub_pts = []
+##                    for i in range(len(pts) - 1):
+##                        p1 = pts[i]
+##                        p2 = pts[i + 1]
+##                        sub_pts.append([p1[j] + f * (p2[j] - p1[j]) for j in [0, 1]])
+##                    return bez(sub_pts, f)
+##
+##            def gen_f():
+##                f = 0.0
+##                while f < 1:
+##                    yield f
+##                    f += 0.01 + 0.1 * (math.cos(math.pi * (2 * f - 1)) + 1) / 2
+##                yield 1.0
+##
+##            if (x, y) in tree_edges:
+##                colour = (0, 0, 0, 1)
+##            else:
+##                colour = (0.5, 0.5, 0.5, 1)
+##            
+##            self.shapes.add_shape(shapely.geometry.LineString([p0] + [bez([p1, p2, p3, p4], f) for f in gen_f()] + [p5]).buffer(0.1), colour)
+##
+##        for x in G.nodes():
+##            if x in self.more_to_see_nodes:
+##                colour = (0, 0, 0, 1)
+##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.5), colour)
+##            
+##        for x in G.nodes():
+##            if x == self.root:
+##                rad = 0.45
+##                colour = (1, 0, 0, 1)
+##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
+##                
+##            elif (type(self.tree.entity_lookup[x]) == treedata.Person if x in self.tree.entity_lookup else False):                
+##                rad = 0.45
+##                sex = self.tree.entity_lookup[x].get_sex()
+##                if sex == "male":
+##                    colour = (0, 0.5, 1, 1)
+##                elif sex == "female":
+##                    colour = (1, 0.5, 0.5, 1)
+##                else:
+##                    colour = (1, 0.5, 0, 1)
+##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
+##
+##                    
 ##            elif (type(self.tree.entity_lookup[x]) == treedata.Partnership if x in self.tree.entity_lookup else False):
 ##                rad = 0.15
 ##                colour = (0, 0, 0, 1)
 ##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
-            
-        self.shapes.update_vao()
+##
+##        self.shapes.update_vao()
 
     def set_rect(self, rect):
         super().set_rect(rect)
@@ -482,12 +692,14 @@ class TreeView(pgbase.canvas2d.Window2D):
                     
             
     def draw(self):
-        super().set_uniforms([self.prog, self.shapes.prog])
+        super().set_uniforms([self.bg_prog, self.entity_prog, self.edge_prog])
         
         self.ctx.screen.use()
-        self.ctx.clear(1, 0, 1, 1)
-        self.vao.render(moderngl.TRIANGLES, instances = 1)
-        self.shapes.vao.render(moderngl.TRIANGLES, instances = 1)
+        self.ctx.clear(1, 1, 1, 1)
+        self.bg_vao.render(moderngl.TRIANGLES, instances = 1)
+##        self.shapes.vao.render(moderngl.TRIANGLES, instances = 1)
+        self.edge_vao.render(moderngl.POINTS, instances = 1)
+        self.entity_vao.render(moderngl.POINTS, instances = 1)
 
 
 
