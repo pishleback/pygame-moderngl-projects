@@ -10,6 +10,27 @@ import itertools
 import scipy.optimize
 import scipy.spatial
 import math
+from ftree import shapelayout
+
+
+
+
+def entity_format(entity):    
+    if type(entity) == treedata.Person:
+        sex = entity.get_sex()
+        if sex == "male":
+            colour = (0, 0.5, 1, 1)
+        elif sex == "female":
+            colour = (1, 0.5, 0.5, 1)
+        else:
+            colour = (1, 0.5, 0, 1)
+        name = " ".join(entity.get_first_names())
+        return shapelayout.height_frame(shapelayout.string((name if len(name) != 0 else "?"), (0, 0, 0, 1)), 0.9, colour)
+    elif type(entity) == treedata.Partnership:
+        return shapelayout.height_frame(shapelayout.letter("M", (0, 0, 0, 1)), 0.9, (0.7, 0.7, 0, 1))
+    else:
+        return shapelayout.height_frame(shapelayout.letter("?", (0, 0, 0, 1)), 0.9)
+
 
 
 
@@ -44,9 +65,9 @@ class TreeView(pgbase.canvas2d.Window2D):
                     bool by = mod(pos.y, 2) < 1;
 
                     if ((bx && by) || (!bx && !by)) {
-                        f_colour = 0.05 * vec4(1, 1, 1, 0);
+                        f_colour = 0.98 * vec4(1, 1, 1, 0);
                     } else {
-                        f_colour = 0.1 * vec4(1, 1, 1, 0);
+                        f_colour = 1 * vec4(1, 1, 1, 0);
                     }
                 }
     
@@ -67,6 +88,8 @@ class TreeView(pgbase.canvas2d.Window2D):
         self.node_heights = {}
         self.more_to_see_nodes = set([])
         self.cycle_edges = set([])
+
+        self.entity_fmts = {ident : entity_format(self.tree.entity_lookup[ident]) for ident in self.tree.entity_lookup}
         
 
         
@@ -383,10 +406,10 @@ class TreeView(pgbase.canvas2d.Window2D):
             y_pos = self.node_pos(y)
             
             p0 = [x_pos[0], x_pos[1]]
-            p1 = [x_pos[0], x_pos[1] - 0.25]
+            p1 = [x_pos[0], x_pos[1] - 0.5]
             p2 = [x_pos[0], x_pos[1] - 1]
             p3 = [y_pos[0], y_pos[1] + 1]
-            p4 = [y_pos[0], y_pos[1] + 0.25]
+            p4 = [y_pos[0], y_pos[1] + 0.5]
             p5 = [y_pos[0], y_pos[1]]
 
             def bez(pts, f):
@@ -408,24 +431,33 @@ class TreeView(pgbase.canvas2d.Window2D):
                 yield 1.0
 
             if (x, y) in tree_edges:
-                colour = (0, 0.5, 1, 1)
+                colour = (0, 0, 0, 1)
             else:
-                colour = (0, 1, 1, 1)
+                colour = (0.5, 0.5, 0.5, 1)
             
-            self.shapes.add_shape(shapely.geometry.LineString([p0] + [bez([p1, p2, p3, p4], f) for f in gen_f()] + [p5]).buffer(0.05), colour)
+            self.shapes.add_shape(shapely.geometry.LineString([p0] + [bez([p1, p2, p3, p4], f) for f in gen_f()] + [p5]).buffer(0.1), colour)
 
         for x in G.nodes():
             if x in self.more_to_see_nodes:
-                colour = (0, 0.5, 1, 1)
-                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.3), colour)
+                colour = (0, 0, 0, 1)
+                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.5), colour)
             
         for x in G.nodes():
-            colour = (1, 1, 0, 1)
             if x == self.root:
+                rad = 0.45
                 colour = (1, 0, 0, 1)
-            elif (type(self.tree.entity_lookup[x]) == treedata.Partnership if x in self.tree.entity_lookup else False):
-                colour = (0, 0.5, 1, 1)
-            self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.2), colour)
+                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
+                
+            elif (type(self.tree.entity_lookup[x]) in {treedata.Person, treedata.Partnership } if x in self.tree.entity_lookup else False):                
+                fmt = shapelayout.position_frame(self.entity_fmts[x], self.node_pos(x))
+                for geom, colour in fmt.gen_shapes():
+                    self.shapes.add_shape(geom, colour)
+
+                    
+##            elif (type(self.tree.entity_lookup[x]) == treedata.Partnership if x in self.tree.entity_lookup else False):
+##                rad = 0.15
+##                colour = (0, 0, 0, 1)
+##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
             
         self.shapes.update_vao()
 
@@ -468,3 +500,35 @@ def run(tree):
     pgbase.core.run(TreeView(tree))
     pygame.quit()
     sys.exit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    

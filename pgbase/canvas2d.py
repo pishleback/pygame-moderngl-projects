@@ -38,11 +38,12 @@ class ShapelyModel():
         self.update_vao()
 
     def add_shape(self, shape, colour = (1, 0, 1, 1)):
+        assert len(colour) == 4
         if type(shape) == shapely.geometry.Polygon:
             self.polygons.append(ShapelyModel.Polygon(shape, colour))
         elif type(shape) == shapely.geometry.MultiPolygon:
             for sub_shape in shape.geoms:
-                self.add_shape(sub_shape)
+                self.add_shape(sub_shape, colour)
         else:
             raise NotImplementedError(f"drawing {type(shape)} is not implemented")
 
@@ -77,6 +78,7 @@ class ShapelyModel():
                     holes.append(hole)
                     idx_offset = len(pts)
                     for idx, pt in enumerate(coords):
+                        all_colours.append(poly.colour)
                         pts.append(pt)
                         segs.append((idx_offset + idx, idx_offset + (idx + 1) % len(coords)))
 
@@ -92,6 +94,7 @@ class ShapelyModel():
             return np.vstack([np.empty([0, 2])] + all_verts), np.vstack([np.empty([0, 3], dtype = "int32")] + all_tris), np.vstack([np.empty([0, 4])] + all_colours)
 
         verts, tris, colours = gen_triangles()
+        assert len(verts) == len(colours)
 
         self.prog = self.ctx.program(
             vertex_shader = """
