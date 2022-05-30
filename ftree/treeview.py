@@ -12,6 +12,7 @@ import scipy.spatial
 import math
 
 
+
 class TreeView(pgbase.canvas2d.Window2D):
     def __init__(self, tree, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,6 +61,13 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         import random
         self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
+        
+        self.root = None
+        self.node_widths = {}
+        self.node_heights = {}
+        self.more_to_see_nodes = set([])
+        self.cycle_edges = set([])
+        
 
         
 ##        G = nx.DiGraph()
@@ -89,44 +97,7 @@ class TreeView(pgbase.canvas2d.Window2D):
 ##        self.G = G
     
         self.G = self.tree.digraph()
-        tr = nx.bfs_tree(self.G.to_undirected(), next(iter(self.G.nodes)))
-        self.T = self.G.edge_subgraph(itertools.chain(tr.edges(), [(e[1], e[0]) for e in tr.edges()]))
-        
-        
-        oriented_cycles = [list(zip(nodes,(nodes[1:] + nodes[:1]))) for nodes in nx.cycle_basis(self.G.to_undirected())]
-        edges = list(self.G.edges())
-        #extend some edges such that we get a well defined (up to adding a constant) height function on nodes
-        if len(oriented_cycles) == 0:
-            A_eq = None
-            b_eq = None
-        else:
-            A_eq = np.array([[(1 if edge in oc else (-1 if (edge[1], edge[0]) in oc else 0)) for edge in edges] for oc in oriented_cycles])
-            b_eq = np.zeros(len(oriented_cycles))
-        opt_result = scipy.optimize.linprog(np.ones(len(edges)),
-                                      A_eq = A_eq,
-                                      b_eq = b_eq,
-                                      bounds = [[1, None]] * len(edges))
-        edge_lengths = {edges[i] : opt_result.x[i] for i in range(len(edges))}
-        #smooth out the extensions along paths
-        #for example, we could have .--1--.--1--.--4--. which can be smoothed to .--2--.--2--.--2--.
-        #NOT IMPLEMENTED YET
-
-        #convert edge lengths to a height function
-        start = next(iter(self.G.nodes()))
-        node_heights = {start : 0.0}
-        for edge in nx.dfs_edges(self.G.to_undirected(), start):
-            if edge in edge_lengths:
-                dh = -edge_lengths[edge]
-            else:
-                dh = edge_lengths[(edge[1], edge[0])]
-            node_heights[edge[1]] = node_heights[edge[0]] + dh
-
-        self.node_heights = {node : h for node, h in node_heights.items()}
-        
-        #set by self.set_node_widths():
-        self.root = None
-        self.node_widths = {}
-        self.more_to_see_nodes = set([])
+        self.T = nx.DiGraph()
 
         root = max(self.G.nodes(), key = lambda x : len(nx.ancestors(self.G, x)))
         for _ in range(0):
@@ -134,16 +105,39 @@ class TreeView(pgbase.canvas2d.Window2D):
 ##        root = list(G.predecessors(root))[1]
 ##        root = max(G.nodes(), key = lambda x : len(nx.descendants(G, x)))
 
+        self.set_root(root)
 
-        self.set_node_widths(root)
+    def set_root(self, root):
+        self.root = root
+        self.update_node_heights()
+        self.update_node_widths()
 
-    def set_node_widths(self, root):            
+    def update_node_heights(self):
+        #set self.node_heights and self.T
+        self.T = nx.DiGraph()
+        self.T.add_node(self.root)
+        self.node_heights = {self.root : 0}
+        
+        g_edges = set(self.G.edges())
+        for t_edge in nx.bfs_edges(self.G.to_undirected(), self.root):
+            if t_edge in g_edges:
+                g_edge = t_edge
+                self.T.add_edge(g_edge[0], g_edge[1])
+                self.node_heights[t_edge[1]] = self.node_heights[t_edge[0]] - 1
+            else:
+                g_edge = (t_edge[1], t_edge[0])
+                assert g_edge in g_edges
+                self.T.add_edge(g_edge[0], g_edge[1])
+                self.node_heights[t_edge[1]] = self.node_heights[t_edge[0]] + 1
+                
+
+    def update_node_widths(self):
+        #set self.node_widths and self.more_to_see_nodes
+        
         #successors
         #predecessors
         #ancestors
         #descendants
-
-        node_heights = self.node_heights
 
         def match(node, rw1, rw2):
             assert node in rw1
@@ -169,12 +163,28 @@ class TreeView(pgbase.canvas2d.Window2D):
             #side = 0: place rw1 to the left of rw2
             #side = 1: place rw2 to the right of rw1
             assert 0 <= side <= 1
-            m = math.inf
-            for a, b in itertools.product(rw1.keys(), rw2.keys()):
-                assert a != b
-                if abs(node_heights[a] - node_heights[b]) < 0.99:
-                    m = min(m, rw2[b] - rw1[a] - 1)
-            if m is math.inf:
+
+            rw1_max = {}
+            for a in rw1:
+                h = self.node_heights[a]
+                if not h in rw1_max:
+                    rw1_max[h] = rw1[a]
+                else:
+                    rw1_max[h] = max(rw1_max[h], rw1[a])
+            rw2_min = {}
+            for b in rw2:
+                h = self.node_heights[b]
+                if not h in rw2_min:
+                    rw2_min[h] = rw2[b]
+                else:
+                    rw2_min[h] = min(rw2_min[h], rw2[b])
+
+            for h in rw1_max.keys() | rw2_min.keys():
+                assert not math.isnan(rw2_min.get(h, math.inf) - rw1_max.get(h, -math.inf))
+
+            m = min(rw2_min.get(h, math.inf) - rw1_max.get(h, -math.inf) - 1 for h in rw1_max.keys() | rw2_min.keys())
+                    
+            if m == math.inf:
                 return center(rw1, 0) | center(rw2, 0)
             else:
                 rw = {}
@@ -199,13 +209,12 @@ class TreeView(pgbase.canvas2d.Window2D):
         def compute_widths_down_part(G, node, minh = -math.inf, excluded_succ = None):
             if excluded_succ is None:
                 excluded_succ = set([])
-            if node_heights[node] < minh:
-                return {}
+            assert self.node_heights[node] >= minh
             tops = [{node : 0}]
             found_tops = set([node])
             for n in G.successors(node):
                 if not n in excluded_succ:
-                    if node_heights[n] >= minh:
+                    if self.node_heights[n] >= minh:
                         for p in G.predecessors(n):
                             if not p in found_tops:
                                 found_tops.add(p)
@@ -216,12 +225,11 @@ class TreeView(pgbase.canvas2d.Window2D):
             bots = []
             for n in G.successors(node):
                 if not n in excluded_succ:
-                    if node_heights[n] >= minh:
+                    if self.node_heights[n] >= minh:
                         bots.append(compute_widths_down_part(G, n, minh = minh))            
             return center(stack(tops), 0) | center(stack(bots), 0)
 
         
-
         def compute_widths_related(G, node):
 ##            #remove some edges so that G is a tree
 ##            T = nx.bfs_tree(G.to_undirected(), root)
@@ -244,7 +252,7 @@ class TreeView(pgbase.canvas2d.Window2D):
             def compute_upwards(G, node, block_left, block_right, minh_left, minh_right):
                 assert block_left or block_right
                 preds = pred_lookup[node]
-                minh_mid = node_heights[node] + 0.99
+                minh_mid = self.node_heights[node] + 1
                 tops = []
                 for i, n in enumerate(preds):
                     if i == 0 == len(preds) - 1:
@@ -275,7 +283,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                 else:
                     assert False #at least one of block_left/block_right should be True
 
-            def compute_whole(G, node, base, minh_left, minh_right):                
+            def compute_whole(G, node, base, minh_left, minh_right):
                 assert node in base
                 core = match(node, compute_upwards(G, node, True, True, minh_left, minh_right), base)
 
@@ -326,14 +334,14 @@ class TreeView(pgbase.canvas2d.Window2D):
 
             return center(compute_whole(G, node, compute_widths_down_part(G, node), -math.inf, -math.inf), 0)
 
-        def compute_widths_up(G, node):
-            return {node : 0} | center(stack([compute_widths_up(G, n) for n in G.predecessors(node)]), 0)
+##        def compute_widths_up(G, node):
+##            return {node : 0} | center(stack([compute_widths_up(G, n) for n in G.predecessors(node)]), 0)
+##
+##        def compute_widths_down(G, node):
+##            return {node : 0} | center(stack([compute_widths_down(G, n) for n in G.successors(node)]), 0)
 
-        def compute_widths_down(G, node):
-            return {node : 0} | center(stack([compute_widths_down(G, n) for n in G.successors(node)]), 0)
-
-        self.root = root
-        self.node_widths = compute_widths_related(self.T, root)
+        self.node_widths = compute_widths_related(self.T, self.root)
+        
         self.more_to_see_nodes = set([])
         for node in self.node_widths:
             for x in itertools.chain(self.G.successors(node), self.G.predecessors(node)):
@@ -437,7 +445,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                 scr_node_pos = self.world_to_pygame(node_pos)
                 
                 if dist(event.pos, scr_node_pos) < 50:
-                    self.set_node_widths(node)
+                    self.set_root(node)
                     self.center = self.center - np.array(node_pos) + np.array(self.node_pos(node))
                     
             
