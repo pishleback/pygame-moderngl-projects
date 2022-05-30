@@ -10,6 +10,7 @@ import itertools
 import scipy.optimize
 import scipy.spatial
 import math
+import time
 
 
 
@@ -137,11 +138,7 @@ class TreeView(pgbase.canvas2d.Window2D):
     
             """,
         )
-        vertices = self.ctx.buffer(np.array([[0, 0]]).astype('f4'))
-        indices = self.ctx.buffer(np.array([0]))
-        self.entity_vao = self.ctx.vertex_array(self.entity_prog,
-                                                [(vertices, "2f4", "pos")],
-                                                indices)
+        self.entity_vao = None
 
         self.edge_prog = self.ctx.program(
             vertex_shader = """
@@ -278,24 +275,28 @@ class TreeView(pgbase.canvas2d.Window2D):
     
             """,
         )
-        buffer_top_vertices = self.ctx.buffer(np.array([[1, 1]]).astype('f4'))
-        buffer_bot_vertices = self.ctx.buffer(np.array([[0, 0]]).astype('f4'))
-        indices = self.ctx.buffer(np.array([0]))
-        self.edge_vao = self.ctx.vertex_array(self.edge_prog,
-                                                [(buffer_top_vertices, "2f4", "top_pos"),
-                                                 (buffer_bot_vertices, "2f4", "bot_pos")],
-                                                indices)
+        self.edge_vao = None
 
         
 
 
 ##        self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
+
+        self.node_heights = {}
+        self.node_widths = {}
         
         self.root = None
         self.node_widths = {}
         self.node_heights = {}
         self.more_to_see_nodes = set([])
         self.cycle_edges = set([])
+
+        #variables for changing root node animation
+        self.node_draw_positions = {}
+        self.moving_nodes = []
+        self.moving_nodes_old_positions = np.array([0, 2])
+        self.moving_nodes_new_positions = np.array([0, 2])
+        self.last_rootchange_time = time.time()
     
         self.G = self.tree.digraph()
         self.T = nx.DiGraph()
@@ -308,14 +309,18 @@ class TreeView(pgbase.canvas2d.Window2D):
 
     def set_root(self, root):
         self.root = root
-        self.update_node_heights()
-        self.update_node_widths()
+        self.update_node_positions()
 
-    def update_node_heights(self):
+    def update_node_positions(self):
+        old_node_draw_positions = {n : p for n, p in self.node_draw_positions.items()}
+
+
         #set self.node_heights and self.T
         self.T = nx.DiGraph()
         self.T.add_node(self.root)
         self.node_heights = {self.root : 0}
+        if self.root in old_node_draw_positions:
+            self.node_heights[self.root] = old_node_draw_positions[self.root][1]
         
         g_edges = set(self.G.edges())
         for t_edge in nx.bfs_edges(self.G.to_undirected(), self.root):
@@ -329,8 +334,6 @@ class TreeView(pgbase.canvas2d.Window2D):
                 self.T.add_edge(g_edge[0], g_edge[1])
                 self.node_heights[t_edge[1]] = self.node_heights[t_edge[0]] + 1
                 
-
-    def update_node_widths(self):
         #set self.node_widths and self.more_to_see_nodes
         
         #successors
@@ -548,15 +551,20 @@ class TreeView(pgbase.canvas2d.Window2D):
                     self.more_to_see_nodes.add(node)
         
 ##        self.update_shapes_vao()
-        self.update_vaos()
+
+        self.moving_nodes = list(old_node_draw_positions.keys() & self.node_widths.keys())
+        self.moving_nodes_old_positions = np.array([old_node_draw_positions[n] for n in self.moving_nodes])
+        self.moving_nodes_new_positions = np.array([[self.node_widths[n], self.node_heights[n]] for n in self.moving_nodes])
+        self.last_rootchange_time = time.time()
 
     def node_pos(self, node):
-        return [self.node_widths[node], 2 * self.node_heights[node]]
+        pos = self.node_draw_positions[node]
+        return [pos[0], 2 * pos[1]]
 
     def update_vaos(self):
         import random
         
-        H = self.G.subgraph(self.node_widths.keys())
+        H = self.G.subgraph(self.node_draw_positions.keys())
 
         nodes = list(H.nodes)        
         buffer_vertices = self.ctx.buffer(np.array([self.node_pos(node) for node in nodes]).astype('f4'))
@@ -673,6 +681,18 @@ class TreeView(pgbase.canvas2d.Window2D):
 
     def set_rect(self, rect):
         super().set_rect(rect)
+
+    def tick(self, tps):
+        d = 0.75
+        if time.time() < self.last_rootchange_time + d and len(self.moving_nodes) != 0:
+            f = (time.time() - self.last_rootchange_time) / d
+            f = 0.5 * (math.cos(math.pi * (f - 1)) + 1)
+            poses = f * self.moving_nodes_new_positions + (1 - f) * self.moving_nodes_old_positions
+            self.node_draw_positions = {n : poses[i] for i, n in enumerate(self.moving_nodes)}
+        else:
+            self.node_draw_positions = {n : [self.node_widths[n], self.node_heights[n]] for n in self.node_widths}
+        self.update_vaos()
+            
         
     def event(self, event):
         def dist(p1, p2):
@@ -682,7 +702,7 @@ class TreeView(pgbase.canvas2d.Window2D):
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 pos = self.pygame_to_world(event.pos)                    
-                node = min(self.node_widths.keys(), key = lambda node : dist(pos, self.node_pos(node)))
+                node = min(self.node_draw_positions.keys(), key = lambda node : dist(pos, self.node_pos(node)))
                 node_pos = self.node_pos(node)
                 scr_node_pos = self.world_to_pygame(node_pos)
                 
@@ -698,8 +718,10 @@ class TreeView(pgbase.canvas2d.Window2D):
         self.ctx.clear(1, 1, 1, 1)
         self.bg_vao.render(moderngl.TRIANGLES, instances = 1)
 ##        self.shapes.vao.render(moderngl.TRIANGLES, instances = 1)
-        self.edge_vao.render(moderngl.POINTS, instances = 1)
-        self.entity_vao.render(moderngl.POINTS, instances = 1)
+        if not self.edge_vao is None:
+            self.edge_vao.render(moderngl.POINTS, instances = 1)
+        if not self.entity_vao is None:
+            self.entity_vao.render(moderngl.POINTS, instances = 1)
 
 
 
