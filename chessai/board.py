@@ -1,9 +1,11 @@
 import functools
 import math
 import time
+import random
 
 
 class Piece():
+    VALUE = None
     def __init__(self, team, has_moved):
         assert team in {-1, 1}
         assert type(has_moved) is bool
@@ -11,30 +13,38 @@ class Piece():
         self.has_moved = has_moved
 
 class Pawn(Piece):
-    def __init__(self, *args):
+    VALUE = 1
+    def __init__(self, *args, adv = 0):
         super().__init__(*args)
+        self.adv = 0 #how many steps have we taken
 
 class Rook(Piece):
+    VALUE = 5
     def __init__(self, *args):
         super().__init__(*args)
 
 class Knight(Piece):
+    VALUE = 3
     def __init__(self, *args):
         super().__init__(*args)
 
 class Bishop(Piece):
+    VALUE = 3
     def __init__(self, *args):
         super().__init__(*args)
 
 class Queen(Piece):
+    VALUE = 9
     def __init__(self, *args):
         super().__init__(*args)
 
 class Prince(Piece):
+    VALUE = 4
     def __init__(self, *args):
         super().__init__(*args)
 
 class King(Piece):
+    VALUE = 1000
     def __init__(self, *args, castles = []):
         super().__init__(*args)
         self.castles = castles #list of rook starting positions, king move positions and rook move positions for castling
@@ -120,26 +130,121 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
             self.piece = piece
             self.at_idx = at_idx
             self.sees_idx = sees_idx
+
+    class MovementInfoSlide(MovementInfo):
+        def __init__(self, *args, slide_idx, slide):
+            super().__init__(*args)
+            self.slide_idx = slide_idx
+            self.slide = slide
             
     #actual moves which can be made
     class ActualMove():
-        def __init__(self, select_idx, perform_idx, from_board, to_board, is_capture):
+        def __init__(self, select_idx, perform_idx, from_board, to_board):
             self.select_idx = select_idx
             self.perform_idx = perform_idx
             self.from_board = from_board
             self.to_board = to_board
-            self.is_capture = is_capture
 
-        @functools.cache
-        def is_legal(self):
+        @property
+        def is_capture(self):
+            return False
+
+        def is_legal_slow(self):
             #make this more efficient:
             #if in check, can only do 1) move king out of danger 2) block / take attacking piece
             #if not in check, can only not do 1) move a pinned piece 2) move king into check 3) do en passant and remove pinned enemy pawn
             #checking the above would be much faster than generating all moves on the next board to see if we are in check afer each move
-            if self.to_board.is_checked(self.from_board.turn):
-                return False
-            return True
+            return not self.to_board.is_checked(self.from_board.turn)
+
+        @functools.cache
+        def is_legal(self):
+            return self.is_legal_slow()
+        
+    class ActualNormalMove(ActualMove):
+        def __init__(self, *args, moving_piece, from_idx, to_idx, take_piece = None):
+            super().__init__(*args)
+            self.moving_piece = moving_piece
+            self.from_idx = from_idx
+            self.to_idx = to_idx
+            self.take_piece = take_piece
             
+        @property
+        def is_capture(self):
+            return not self.take_piece is None
+
+        @functools.cache
+        def is_legal(self):
+            verify = False
+            
+            #we want to determine if the move is legal without running the expensive self.to_board._board_info
+            #we can however use self.from_board._board_info - this is usually enough
+            if self.to_board.is_checked(self.from_board.turn):
+                if type(self.moving_piece) == King:
+                    #are we moving into check
+                    for info in self.from_board.seen_by(self.to_idx):
+                        if info.piece.team != self.from_board.turn:
+                            ans = False
+                            if verify:
+                                assert ans == self.is_legal_slow()
+                            return ans
+                    #are we moving into a check which is obscured by ourself (the continuation of a checking sliding piece)
+                    for info in self.from_board.seen_by(self.from_board.king_idx[self.from_board.turn]):
+                        if info.piece.team != self.from_board.turn:
+                            if isinstance(info, MovementInfoSlide):
+                                if info.slide_idx < len(info.slide) - 1:
+                                    danger_idx = info.slide[info.slide_idx + 1]
+                                    if self.to_idx == danger_idx:
+                                        ans = False
+                                        if verify:
+                                            assert ans == self.is_legal_slow()
+                                        return ans
+                    #we are safe otherwise
+                    ans = True
+                    if verify:
+                        assert ans == self.is_legal_slow()
+                    return ans
+                else:
+                    ans = self.is_legal_slow()
+                    if verify:
+                        assert ans == self.is_legal_slow()
+                    return ans
+            else:
+                if type(self.moving_piece) == King:
+                    #are we moving into check
+                    for info in self.from_board.seen_by(self.to_idx):
+                        if info.piece.team != self.from_board.turn:
+                            ans = False
+                            if verify:
+                                assert ans == self.is_legal_slow()
+                            return ans
+                    #we are safe otherwise
+                    ans = True
+                    if verify:
+                        assert ans == self.is_legal_slow()
+                    return ans
+                else:
+                    #are we pinned
+                    for info in self.from_board.seen_by(self.from_idx):
+                        if isinstance(info, MovementInfoSlide):
+                            slide_idx = info.slide_idx
+                            while slide_idx < len(info.slide) - 1:
+                                slide_idx += 1
+                                danger_idx = info.slide[slide_idx]
+                                if danger_idx in self.to_board.pieces:
+                                    hit = self.to_board.pieces[danger_idx]
+                                    if type(hit) == King and hit.team == self.from_board.turn:
+                                        ans = False
+                                        if verify:
+                                            assert ans == self.is_legal_slow()
+                                        return ans
+                                    break
+                                
+                    #otherwise we are safe
+                    ans = True
+                    if verify:
+                        assert ans == self.is_legal_slow()
+                    return ans
+        
 
     class OutOfTime(Exception):
         pass
@@ -157,6 +262,8 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
 
         SEARCH_START_TIME = time.time()
         SEARCH_TIME_ALLOWED = 0.0
+        MAX_Q_DEPTH = 0
+        LEAF_COUNT = 0
 
         @classmethod
         def starting_board(cls):
@@ -175,17 +282,24 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                     self.king_idx[piece.team] = idx
             self.turn = turn
 
+            self.best_known_score = 0
+            self.best_known_score_depth = -1
+            
             self.current_best_depth = 0
             self.current_best_move = None
 
-        def cache_clear(self):
-            self._get_move_info.cache_clear()
-            self.get_moves.cache_clear()
+
+        def cache_clear(self, ignore):
+            if not self in ignore:
+                if "_board_info" in self.__dict__:
+                    for move in self._board_info[0]:
+                        move.to_board.cache_clear(ignore)
+                    del self._board_info
 
 
-        @functools.cache
+        @functools.cached_property
         @lambda f : lambda self : tuple(f(self))
-        def _get_move_info(self):
+        def _board_info(self):
             actual_moves = []
             seen_by = {idx : set() for idx in range(num_squares)}
             movecount = {1 : 0, -1 : 0}
@@ -195,23 +309,28 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                 seen_by[to_idx].add(info)
                 movecount[from_piece.team] += 1
 
+            def new_slide_info(from_piece, from_idx, to_idx, slide_idx, slide):
+                info = MovementInfoSlide(from_piece, from_idx, to_idx, slide_idx = slide_idx, slide = slide)
+                seen_by[to_idx].add(info)
+                movecount[from_piece.team] += 1
+
             def new_move(from_piece, from_idx, to_piece, to_idx):
                 pieces = {piece : idx for piece, idx in self.pieces.items()}
                 del pieces[from_piece]
                 pieces[to_piece] = to_idx
-                actual_moves.append(ActualMove(from_idx, to_idx, self, Board(self.num + 1, pieces, -self.turn), False))
+                actual_moves.append(ActualNormalMove(from_idx, to_idx, self, Board(self.num + 1, pieces, -self.turn), moving_piece = piece, from_idx = from_idx, to_idx = to_idx, take_piece = None))
 
             def new_take(from_piece, from_idx, to_piece, to_idx, take_piece):
                 pieces = {piece : idx for piece, idx in self.pieces.items()}
                 del pieces[from_piece]
                 del pieces[take_piece]
                 pieces[to_piece] = to_idx
-                actual_moves.append(ActualMove(from_idx, to_idx, self, Board(self.num + 1, pieces, -self.turn), True))
+                actual_moves.append(ActualNormalMove(from_idx, to_idx, self, Board(self.num + 1, pieces, -self.turn), moving_piece = piece, from_idx = from_idx, to_idx = to_idx, take_piece = take_piece))
 
             def do_slides(piece, idx, slides):
                 for slide in slides:
-                    for move_idx in slide:
-                        new_info(piece, idx, move_idx)
+                    for slide_idx, move_idx in enumerate(slide):
+                        new_slide_info(piece, idx, move_idx, slide_idx, slide)
                         if move_idx in self.idx_piece_lookup:
                             blocking_piece = self.idx_piece_lookup[move_idx]
                             if piece.team == self.turn and blocking_piece.team != piece.team:
@@ -238,18 +357,18 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                         for move1, move2s in self.PAWN_MOVES[piece.team][idx]:
                             #pawn move 1 foward
                             if not move1 in self.idx_piece_lookup:
-                                new_move(piece, idx, Pawn(piece.team, True), move1)
+                                new_move(piece, idx, Pawn(piece.team, True, adv = piece.adv + 1), move1)
                                 #pawn move 2 foward
                                 for move2 in move2s:
                                     if not move2 in self.idx_piece_lookup:
-                                        new_move(piece, idx, Pawn(piece.team, True), move2)
+                                        new_move(piece, idx, Pawn(piece.team, True, adv = piece.adv + 2), move2)
                     #pawn attack
                     for move_idx in self.PAWN_ATTACKS[piece.team][idx]:
                         new_info(piece, idx, move_idx)
                         if move_idx in self.idx_piece_lookup:
                             blocking_piece = self.idx_piece_lookup[move_idx]
                             if piece.team == self.turn and blocking_piece.team != piece.team:
-                                new_take(piece, idx, Pawn(piece.team, True), move_idx, blocking_piece)
+                                new_take(piece, idx, Pawn(piece.team, True, adv = piece.adv + 1), move_idx, blocking_piece)
 
                 if type(piece) in {Rook, Queen}:
                     do_slides(piece, idx, self.FLAT_SLIDE[idx])
@@ -263,71 +382,123 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
             return actual_moves, seen_by, movecount
 
         def get_pseudo_moves(self):
-            return self._get_move_info()[0]
+            return self._board_info[0]
 
         def seen_by(self, idx):
-            return self._get_move_info()[1][idx]
+            return self._board_info[1][idx]
 
-        @functools.cache
         def is_checked(self, team):
             for info in self.seen_by(self.king_idx[team]):
                 if info.piece.team != team:
                     return True
             return False
 
-        @functools.cache
         def get_moves(self):
             return tuple(move for move in self.get_pseudo_moves() if move.is_legal())
 
+        def update_best_known_score(self, score, depth):
+            if depth >= self.best_known_score_depth:
+                self.best_known_score_depth = depth
+                self.best_known_score = score
+
+        def get_moves_sorted(self, only_captures = False):
+            #deepest searches first
+            #then those with the least opponent score on the next move
+            return sorted([move for move in self.get_moves() if move.is_capture or not only_captures], key = lambda move : (-move.to_board.best_known_score_depth, move.to_board.best_known_score))
+
         @functools.cache
         def static_eval(self, team):
-            total = 0
-            #piece value
-            for piece in self.pieces:
-                total += piece.team * {Pawn : 1, Rook : 5, Knight : 3, Bishop : 3, Queen : 9, King : 1000}[type(piece)]
-            #avalable moves
-            for t, c in self._get_move_info()[2].items():
-                total += 0.1 * t * c
-            return total * team
+            type(self).LEAF_COUNT += 1
+##            if type(self).LEAF_COUNT % 100 == 0:
+##                print(type(self).LEAF_COUNT)
 
-        def quiesce(self, alpha, beta):
-            if time.time() - type(self).SEARCH_START_TIME > self.SEARCH_TIME_ALLOWED:
-                raise OutOfTime()
-            return self.static_eval(self.turn)
+            def compute_score():
+                if len(self.get_moves()) == 0:
+                    for info in self.seen_by(self.king_idx[self.turn]):
+                        if info.piece.team == -self.turn:
+                            #no moves & in check => checkmate. We loose
+                            return -math.inf * team
+                            return total
+                    #no moves & not in check => draw
+                    return 0
+                else:
+                    total = 0
+                    #piece value
+                    for piece in self.pieces:
+                        total += piece.team * type(piece).VALUE
+                        #pawn adv
+                        if type(piece) == Pawn:
+                            total += piece.team * 0.2 * piece.adv
+                        
+                    #avalable moves
+                    for t, c in self._board_info[2].items():
+                        total += 0.05 * t * c
+                    return team * total
+
+            score = compute_score()
+            self.update_best_known_score(score, 0)
+            return score
+
+        def quiesce(self, alpha, beta, depth):
+            type(self).MAX_Q_DEPTH = max(type(self).MAX_Q_DEPTH, depth)
+            stand_pat = self.static_eval(self.turn)
+            if stand_pat >= beta:
+                return beta
+            if alpha < stand_pat:
+                alpha = stand_pat
+            for move in self.get_moves_sorted(True):
+                if stand_pat + type(move.take_piece).VALUE < alpha:
+                    #delta prune - we can already do better than taking this piece elsewhere
+                    return alpha
+                score = -move.to_board.quiesce(-beta, -alpha, depth + 1)
+                if score >= beta:
+                    return beta
+                if score > alpha:
+                   alpha = score
+            return alpha
+
 
         @functools.cache
-        def alpha_beta(self, alpha, beta, depth):            
-            if depth == 0:
-                return self.quiesce(alpha, beta)
-            for move in sorted(self.get_moves(), key = lambda move : move.to_board.static_eval(move.to_board.turn)):
-                score = -move.to_board.alpha_beta(-beta, -alpha, depth - 1)
+        def alpha_beta(self, alpha, beta, depthleft, depth):
+            if time.time() - type(self).SEARCH_START_TIME > self.SEARCH_TIME_ALLOWED:
+                raise OutOfTime()
+            if depthleft == 0:
+                return self.quiesce(alpha, beta, depth)
+            for move in self.get_moves_sorted():
+                score = -move.to_board.alpha_beta(-beta, -alpha, depthleft - 1, depth + 1)
                 if score >= beta:
                     return beta
                 if score > alpha:
                     alpha = score
+            self.update_best_known_score(alpha, depthleft)
             return alpha
         
-        def alpha_beta_root(self, depth):
-            assert depth >= 1
+        def alpha_beta_root(self, depthleft, depth = 0):
+            assert depthleft >= 1
             alpha = -math.inf
-            best_move = None
-            for move in self.get_moves():
-                score = -move.to_board.alpha_beta(-math.inf, -alpha, depth - 1)
+            best_move = random.choice(self.get_moves())
+                
+            for move in self.get_moves_sorted():
+                score = -move.to_board.alpha_beta(-math.inf, -alpha, depthleft - 1, depth + 1)
                 if score > alpha:
                     alpha = score
                     best_move = move
-            return best_move
+            self.update_best_known_score(alpha, depthleft)
+            return best_move, alpha
 
         def best_move_search(self, dt):
-            type(self).SEARCH_START_TIME = time.time()
-            type(self).SEARCH_TIME_ALLOWED = dt
-            try:
-                while True:
-                    self.current_best_move = self.alpha_beta_root(self.current_best_depth + 1)
-                    self.current_best_depth += 1
-                    print(f"depth = {self.current_best_depth}")
-            except OutOfTime:
-                pass
+            if len(self.get_moves()) != 0:
+                type(self).SEARCH_START_TIME = time.time()
+                type(self).SEARCH_TIME_ALLOWED = dt
+                try:
+                    while self.current_best_depth < 3:
+                        self.current_best_move, score = self.alpha_beta_root(self.current_best_depth + 1)
+                        self.current_best_depth += 1
+                        print(f"depth = {self.current_best_depth}q{type(self).MAX_Q_DEPTH}, leaves = {type(self).LEAF_COUNT}, score = {round(self.turn * score, 2)}", "    ", self.current_best_move.select_idx, "->", self.current_best_move.perform_idx)
+                        type(self).MAX_Q_DEPTH = 0
+                        type(self).LEAF_COUNT = 0
+                except OutOfTime:
+                    pass
                         
 
     return Board

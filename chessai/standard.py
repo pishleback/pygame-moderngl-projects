@@ -6,6 +6,7 @@ from chessai import board
 import sys
 import os
 import functools
+import time
 
 
 
@@ -123,9 +124,19 @@ class BoardView(pgbase.canvas2d.Window2D):
         self.set_board(Board.starting_board())
 
         self.selected_piece = None
+        self.last_move = None
+        self.last_interact_time = time.time()
+
+    def make_move(self, move):
+        if not self.board is None:
+            self.board.cache_clear({move.to_board})
+        assert self.board is move.from_board
+        self.set_board(move.to_board)
+        self.last_move = move
 
     def set_board(self, board):
-        print("new board")
+        print("new board", board.num)
+        self.last_move_time = time.time()
         self.board = board
         self.moves = tuple(board.get_moves())
         self.selected_piece = None
@@ -149,11 +160,19 @@ class BoardView(pgbase.canvas2d.Window2D):
         super().set_rect(rect)
 
     def tick(self, tps):
-        self.board.best_move_search(0.1)
+        if time.time() - self.last_interact_time > 1:
+            self.board.best_move_search(0.5)
+        if time.time() - self.last_interact_time > 1 and time.time() - self.last_move_time > 1 and not self.board.current_best_move is None:
+            self.make_move(self.board.current_best_move)
+            
         
     def event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
+                self.last_interact_time = time.time()
+                
+                self.last_move = None
+                
                 sqx, sqy = [math.floor(8 * (event.pos[i] - self.rect[i]) / self.rect[i + 2]) for i in [0, 1]]
                 if 0 <= sqx < 8 and 0 <= sqy < 8:
                     idx = sq_to_idx([sqx, sqy])
@@ -161,8 +180,7 @@ class BoardView(pgbase.canvas2d.Window2D):
                     if not self.selected_piece is None:
                         for move in self.moves:
                             if move.select_idx == self.board.pieces[self.selected_piece] and move.perform_idx == idx:
-                                self.set_board(move.to_board)
-                                move.from_board.cache_clear()
+                                self.make_move(move)
                                 return
                             
                     if idx in self.board.idx_piece_lookup:
@@ -236,6 +254,12 @@ class BoardView(pgbase.canvas2d.Window2D):
                 sqx, sqy = idx_to_sq(idx)
                 rect = self.get_sq_rect(sqx, sqy)
                 pygame.draw.rect(draw_surf, (255, 128, 0), rect, 8)
+
+        if not self.last_move is None:
+             for idx in [self.last_move.select_idx, self.last_move.perform_idx]:
+                sqx, sqy = idx_to_sq(idx)
+                rect = self.get_sq_rect(sqx, sqy)
+                pygame.draw.rect(draw_surf, (255, 255, 0), rect, 8)
 
         if not self.selected_piece is None:
             sqx, sqy = idx_to_sq(self.board.pieces[self.selected_piece])
