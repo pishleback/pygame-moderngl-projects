@@ -125,9 +125,21 @@ class BoardView(pgbase.canvas2d.Window2D):
         self.selected_piece = None
 
     def set_board(self, board):
+        print("new board")
         self.board = board
         self.moves = tuple(board.get_moves())
         self.selected_piece = None
+
+##        print("========")
+##        for x in range(8):
+##            for y in range(8):
+##                idx = sq_to_idx([x, y])
+##                print([x, y], [idx_to_sq(info.at_idx) for info in self.board.seen_by(idx)])
+##        print(self.board.is_checked(1), self.board.is_checked(-1))
+##        print(self.board.static_eval(1))
+
+##        for idx, obs in self.board.seenby_lookup.items():
+##            print(idx, obs)
         
 
     def get_sq_rect(self, x, y):
@@ -137,7 +149,7 @@ class BoardView(pgbase.canvas2d.Window2D):
         super().set_rect(rect)
 
     def tick(self, tps):
-        pass
+        self.board.best_move_search(0.1)
         
     def event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -150,6 +162,7 @@ class BoardView(pgbase.canvas2d.Window2D):
                         for move in self.moves:
                             if move.select_idx == self.board.pieces[self.selected_piece] and move.perform_idx == idx:
                                 self.set_board(move.to_board)
+                                move.from_board.cache_clear()
                                 return
                             
                     if idx in self.board.idx_piece_lookup:
@@ -217,6 +230,13 @@ class BoardView(pgbase.canvas2d.Window2D):
             x, y, _, _ = self.get_sq_rect(sqx, sqy)
             draw_surf.blit(self.piece_surf(piece), (x, y))
 
+        best_move = self.board.current_best_move
+        if not best_move is None:
+            for idx in [best_move.select_idx, best_move.perform_idx]:
+                sqx, sqy = idx_to_sq(idx)
+                rect = self.get_sq_rect(sqx, sqy)
+                pygame.draw.rect(draw_surf, (255, 128, 0), rect, 8)
+
         if not self.selected_piece is None:
             sqx, sqy = idx_to_sq(self.board.pieces[self.selected_piece])
             rect = self.get_sq_rect(sqx, sqy)
@@ -226,7 +246,10 @@ class BoardView(pgbase.canvas2d.Window2D):
                 if move.select_idx == self.board.pieces[self.selected_piece]:
                     sqx, sqy = idx_to_sq(move.perform_idx)
                     rect = self.get_sq_rect(sqx, sqy)
-                    pygame.draw.rect(draw_surf, (255, 0, 0) if move.is_capture else (0, 255, 0), rect, 8)
+                    colour = (0, 255, 0)
+                    if move.is_capture:
+                        colour = (255, 0, 0)
+                    pygame.draw.rect(draw_surf, colour, rect, 8)
         
         tex = pgbase.tools.np_uint8_to_tex(self.ctx, pgbase.tools.pysurf_to_np_uint8(draw_surf).transpose([1, 0, 2]))
         pgbase.tools.render_tex(tex)

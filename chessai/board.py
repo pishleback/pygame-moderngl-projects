@@ -1,5 +1,6 @@
 import functools
-
+import math
+import time
 
 
 class Piece():
@@ -34,7 +35,7 @@ class Prince(Piece):
         super().__init__(*args)
 
 class King(Piece):
-    def __init__(self, *args, castles):
+    def __init__(self, *args, castles = []):
         super().__init__(*args)
         self.castles = castles #list of rook starting positions, king move positions and rook move positions for castling
 
@@ -113,14 +114,35 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
             for slide in rest_slide(idx, idx, jdx):
                 yield tuple(slide)
 
-
-    class Move():
+    #information about whats defended and where things can move in theory
+    class MovementInfo():
+        def __init__(self, piece, at_idx, sees_idx):
+            self.piece = piece
+            self.at_idx = at_idx
+            self.sees_idx = sees_idx
+            
+    #actual moves which can be made
+    class ActualMove():
         def __init__(self, select_idx, perform_idx, from_board, to_board, is_capture):
             self.select_idx = select_idx
             self.perform_idx = perform_idx
             self.from_board = from_board
             self.to_board = to_board
             self.is_capture = is_capture
+
+        @functools.cache
+        def is_legal(self):
+            #make this more efficient:
+            #if in check, can only do 1) move king out of danger 2) block / take attacking piece
+            #if not in check, can only not do 1) move a pinned piece 2) move king into check 3) do en passant and remove pinned enemy pawn
+            #checking the above would be much faster than generating all moves on the next board to see if we are in check afer each move
+            if self.to_board.is_checked(self.from_board.turn):
+                return False
+            return True
+            
+
+    class OutOfTime(Exception):
+        pass
 
 
     class Board():
@@ -133,97 +155,180 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
         PAWN_MOVES = {team : {idx : tuple(tuple([m1, tuple(m2s)]) for m1, m2s in pawn_moves(team, idx)) for idx in range(num_squares)} for team in {-1, 1}}
         PAWN_ATTACKS = {team : {idx : tuple(set(pawn_attacks(team, idx))) for idx in range(num_squares)} for team in {-1, 1}}
 
+        SEARCH_START_TIME = time.time()
+        SEARCH_TIME_ALLOWED = 0.0
+
         @classmethod
         def starting_board(cls):
             return cls(0, starting_layout, 1)
 
         def __init__(self, num, pieces, turn):
+            self.king_idx = {} #where is the king for each player
             self.num = num
             self.pieces = pieces
             self.idx_piece_lookup = {}
             for piece, idx in pieces.items():
                 assert not idx in self.idx_piece_lookup
                 self.idx_piece_lookup[idx] = piece
+                if type(piece) == King:
+                    assert not piece.team in self.king_idx
+                    self.king_idx[piece.team] = idx
             self.turn = turn
+
+            self.current_best_depth = 0
+            self.current_best_move = None
+
+        def cache_clear(self):
+            self._get_move_info.cache_clear()
+            self.get_moves.cache_clear()
+
 
         @functools.cache
         @lambda f : lambda self : tuple(f(self))
-        def get_moves(self):
-            def move_board(move_pieces):
-                return Board(self.num + 1, move_pieces, -self.turn)
-            
+        def _get_move_info(self):
+            actual_moves = []
+            seen_by = {idx : set() for idx in range(num_squares)}
+            movecount = {1 : 0, -1 : 0}
+
+            def new_info(from_piece, from_idx, to_idx):
+                info = MovementInfo(from_piece, from_idx, to_idx)
+                seen_by[to_idx].add(info)
+                movecount[from_piece.team] += 1
+
+            def new_move(from_piece, from_idx, to_piece, to_idx):
+                pieces = {piece : idx for piece, idx in self.pieces.items()}
+                del pieces[from_piece]
+                pieces[to_piece] = to_idx
+                actual_moves.append(ActualMove(from_idx, to_idx, self, Board(self.num + 1, pieces, -self.turn), False))
+
+            def new_take(from_piece, from_idx, to_piece, to_idx, take_piece):
+                pieces = {piece : idx for piece, idx in self.pieces.items()}
+                del pieces[from_piece]
+                del pieces[take_piece]
+                pieces[to_piece] = to_idx
+                actual_moves.append(ActualMove(from_idx, to_idx, self, Board(self.num + 1, pieces, -self.turn), True))
+
+            def do_slides(piece, idx, slides):
+                for slide in slides:
+                    for move_idx in slide:
+                        new_info(piece, idx, move_idx)
+                        if move_idx in self.idx_piece_lookup:
+                            blocking_piece = self.idx_piece_lookup[move_idx]
+                            if piece.team == self.turn and blocking_piece.team != piece.team:
+                                new_take(piece, idx, type(piece)(piece.team, True), move_idx, blocking_piece)
+                            break
+                        else:
+                            if piece.team == self.turn:
+                                new_move(piece, idx, type(piece)(piece.team, True), move_idx)
+
+            def do_teleports(piece, idx, move_idxs):
+                for move_idx in move_idxs:
+                    new_info(piece, idx, move_idx)
+                    if move_idx in self.idx_piece_lookup:
+                        blocking_piece = self.idx_piece_lookup[move_idx]
+                        if piece.team == self.turn and blocking_piece.team != piece.team:
+                            new_take(piece, idx, type(piece)(piece.team, True), move_idx, blocking_piece)
+                    else:
+                        if piece.team == self.turn:
+                            new_move(piece, idx, type(piece)(piece.team, True), move_idx)
+
             for piece, idx in self.pieces.items():
-                if piece.team == self.turn:
-                    if type(piece) == Pawn:
-                        for move1, move2s in self.PAWN_MOVES[self.turn][idx]:
+                if type(piece) == Pawn:
+                    if piece.team == self.turn:
+                        for move1, move2s in self.PAWN_MOVES[piece.team][idx]:
                             #pawn move 1 foward
                             if not move1 in self.idx_piece_lookup:
-                                move_pieces = {piece : idx for piece, idx in self.pieces.items()}
-                                del move_pieces[piece]
-                                move_pieces[Pawn(piece.team, True)] = move1
-                                yield Move(idx, move1, self, move_board(move_pieces), False)
+                                new_move(piece, idx, Pawn(piece.team, True), move1)
                                 #pawn move 2 foward
                                 for move2 in move2s:
                                     if not move2 in self.idx_piece_lookup:
-                                        move_pieces = {piece : idx for piece, idx in self.pieces.items()}
-                                        del move_pieces[piece]
-                                        move_pieces[Pawn(piece.team, True)] = move2
-                                        yield Move(idx, move2, self, move_board(move_pieces), False)
-                        #pawn attack
-                        for take in self.PAWN_ATTACKS[self.turn][idx]:
-                            if take in self.idx_piece_lookup:
-                                take_piece = self.idx_piece_lookup[take]
-                                if take_piece.team == -piece.team:
-                                    move_pieces = {piece : idx for piece, idx in self.pieces.items()}
-                                    del move_pieces[piece]
-                                    del move_pieces[take_piece]
-                                    move_pieces[Pawn(piece.team, True)] = take
-                                    yield Move(idx, take, self, move_board(move_pieces), True)
-                    #flat slides
-                    if type(piece) in {Rook, Queen}:
-                        for slide in self.FLAT_SLIDE[idx]:
-                            for move_idx in slide:
-                                if move_idx in self.idx_piece_lookup:
-                                    blocking_piece = self.idx_piece_lookup[move_idx]
-                                    if blocking_piece.team != self.turn:
-                                        #we can take a piece
-                                        move_pieces = {piece : idx for piece, idx in self.pieces.items()}
-                                        del move_pieces[piece]
-                                        del move_pieces[blocking_piece]
-                                        move_pieces[type(piece)(piece.team, True)] = move_idx
-                                        yield Move(idx, move_idx, self, move_board(move_pieces), True)
-                                    break
-                                else:
-                                    #generic move
-                                    move_pieces = {piece : idx for piece, idx in self.pieces.items()}
-                                    del move_pieces[piece]
-                                    move_pieces[type(piece)(piece.team, True)] = move_idx
-                                    yield Move(idx, move_idx, self, move_board(move_pieces), False)
-                    #diagonal slides   
-                    if type(piece) in {Bishop, Queen}:
-                        for slide in self.DIAG_SLIDE[idx]:
-                            for move_idx in slide:
-                                if move_idx in self.idx_piece_lookup:
-                                    blocking_piece = self.idx_piece_lookup[move_idx]
-                                    if blocking_piece.team != self.turn:
-                                        #we can take a piece
-                                        move_pieces = {piece : idx for piece, idx in self.pieces.items()}
-                                        del move_pieces[piece]
-                                        del move_pieces[blocking_piece]
-                                        move_pieces[type(piece)(piece.team, True)] = move_idx
-                                        yield Move(idx, move_idx, self, move_board(move_pieces), True)
-                                    break
-                                else:
-                                    #generic move
-                                    move_pieces = {piece : idx for piece, idx in self.pieces.items()}
-                                    del move_pieces[piece]
-                                    move_pieces[type(piece)(piece.team, True)] = move_idx
-                                    yield Move(idx, move_idx, self, move_board(move_pieces), False)
-                                    
-                                    
-            return
-            yield
-                
+                                        new_move(piece, idx, Pawn(piece.team, True), move2)
+                    #pawn attack
+                    for move_idx in self.PAWN_ATTACKS[piece.team][idx]:
+                        new_info(piece, idx, move_idx)
+                        if move_idx in self.idx_piece_lookup:
+                            blocking_piece = self.idx_piece_lookup[move_idx]
+                            if piece.team == self.turn and blocking_piece.team != piece.team:
+                                new_take(piece, idx, Pawn(piece.team, True), move_idx, blocking_piece)
+
+                if type(piece) in {Rook, Queen}:
+                    do_slides(piece, idx, self.FLAT_SLIDE[idx])
+                if type(piece) in {Bishop, Queen}:
+                    do_slides(piece, idx, self.DIAG_SLIDE[idx])
+                if type(piece) in {Knight}:
+                    do_teleports(piece, idx, self.KNIGHT_MOVES[idx])
+                if type(piece) in {Prince, King}:
+                    do_teleports(piece, idx, self.KING_MOVES[idx])
+                                
+            return actual_moves, seen_by, movecount
+
+        def get_pseudo_moves(self):
+            return self._get_move_info()[0]
+
+        def seen_by(self, idx):
+            return self._get_move_info()[1][idx]
+
+        @functools.cache
+        def is_checked(self, team):
+            for info in self.seen_by(self.king_idx[team]):
+                if info.piece.team != team:
+                    return True
+            return False
+
+        @functools.cache
+        def get_moves(self):
+            return tuple(move for move in self.get_pseudo_moves() if move.is_legal())
+
+        @functools.cache
+        def static_eval(self, team):
+            total = 0
+            #piece value
+            for piece in self.pieces:
+                total += piece.team * {Pawn : 1, Rook : 5, Knight : 3, Bishop : 3, Queen : 9, King : 1000}[type(piece)]
+            #avalable moves
+            for t, c in self._get_move_info()[2].items():
+                total += 0.1 * t * c
+            return total * team
+
+        def quiesce(self, alpha, beta):
+            if time.time() - type(self).SEARCH_START_TIME > self.SEARCH_TIME_ALLOWED:
+                raise OutOfTime()
+            return self.static_eval(self.turn)
+
+        @functools.cache
+        def alpha_beta(self, alpha, beta, depth):            
+            if depth == 0:
+                return self.quiesce(alpha, beta)
+            for move in sorted(self.get_moves(), key = lambda move : move.to_board.static_eval(move.to_board.turn)):
+                score = -move.to_board.alpha_beta(-beta, -alpha, depth - 1)
+                if score >= beta:
+                    return beta
+                if score > alpha:
+                    alpha = score
+            return alpha
+        
+        def alpha_beta_root(self, depth):
+            assert depth >= 1
+            alpha = -math.inf
+            best_move = None
+            for move in self.get_moves():
+                score = -move.to_board.alpha_beta(-math.inf, -alpha, depth - 1)
+                if score > alpha:
+                    alpha = score
+                    best_move = move
+            return best_move
+
+        def best_move_search(self, dt):
+            type(self).SEARCH_START_TIME = time.time()
+            type(self).SEARCH_TIME_ALLOWED = dt
+            try:
+                while True:
+                    self.current_best_move = self.alpha_beta_root(self.current_best_depth + 1)
+                    self.current_best_depth += 1
+                    print(f"depth = {self.current_best_depth}")
+            except OutOfTime:
+                pass
+                        
 
     return Board
 
