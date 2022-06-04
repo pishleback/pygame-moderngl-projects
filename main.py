@@ -1,8 +1,8 @@
 ##import mandel
 ##mandel.run()
 
-import ftree
-ftree.run()
+##import ftree
+##ftree.run()
 
 
 ##import polytopes
@@ -11,4 +11,8 @@ ftree.run()
 
 ##import rsphere
 #cc#rsphere.run()
+
+
+import chessai
+chessai.standard.run()
 

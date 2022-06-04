@@ -52,7 +52,20 @@ def render_tex(texture, p1 = [-1, -1], p2 = [1, 1], alpha = 1):
 
 def load_tex(ctx, path):
     data = imageio.imread(path)
-    data = (np.array(data)).astype(np.uint8)
+    return np_uint8_to_tex(ctx, data)
+
+
+def pysurf_to_np_uint8(surf):
+    colour = pygame.surfarray.pixels3d(surf)
+    alpha = pygame.surfarray.pixels_alpha(surf).reshape([surf.get_width(), surf.get_height(), 1])
+    assert colour.dtype == np.uint8
+    assert alpha.dtype == np.uint8
+    data = np.concatenate([colour, alpha], axis = 2)
+    return data
+
+
+def np_uint8_to_tex(ctx, data):
+    data = np.array(data, dtype = np.uint8)
     assert data.shape[2] <= 4
     if data.shape[2] < 4:
         data = np.concatenate([data, 255 * np.ones((data.shape[0], data.shape[1], 4 - data.shape[2]), dtype = np.uint8)], axis = 2)
@@ -63,7 +76,6 @@ def load_tex(ctx, path):
 def tex_to_np(tex):
     if tex.dtype == "f1":
         data = np.frombuffer(tex.read(), dtype = np.uint8).reshape((tex.height, tex.width, tex.components))
-##        data = np.flip(data, axis = 0).copy()
         return data
     else:
         raise NotImplementedError(f"dtype={tex.dtype} is not implemented")
