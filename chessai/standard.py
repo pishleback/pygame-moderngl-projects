@@ -162,8 +162,8 @@ class BoardView(pgbase.canvas2d.Window2D):
     def tick(self, tps):
         if time.time() - self.last_interact_time > 1:
             self.board.best_move_search(0.5)
-        if time.time() - self.last_interact_time > 1 and time.time() - self.last_move_time > 1 and not self.board.current_best_move is None:
-            self.make_move(self.board.current_best_move)
+##        if time.time() - self.last_interact_time > 1 and time.time() - self.last_move_time > 1 and not self.board.current_best_move is None:
+##            self.make_move(self.board.current_best_move)
             
         
     def event(self, event):

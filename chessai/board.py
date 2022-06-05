@@ -264,6 +264,7 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
         SEARCH_TIME_ALLOWED = 0.0
         MAX_Q_DEPTH = 0
         LEAF_COUNT = 0
+        NODE_COUNT = 0
 
         @classmethod
         def starting_board(cls):
@@ -302,17 +303,26 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
         def _board_info(self):
             actual_moves = []
             seen_by = {idx : set() for idx in range(num_squares)}
-            movecount = {1 : 0, -1 : 0}
+            movement_score = {1 : 0, -1 : 0}
 
+            def new_movement_score(info):
+                if info.sees_idx in self.idx_piece_lookup:
+                    sees_piece = self.idx_piece_lookup[info.sees_idx]
+                    movement_score[info.piece.team] += 0.05 * max(5 - type(info.piece).VALUE - type(sees_piece).VALUE, 0) #good to defend/attack low value stuff with low value stuff
+                else:
+                    m_score = 0.05
+                    
+                movement_score[info.piece.team] += 0.02 #movement score
+                
             def new_info(from_piece, from_idx, to_idx):
                 info = MovementInfo(from_piece, from_idx, to_idx)
                 seen_by[to_idx].add(info)
-                movecount[from_piece.team] += 1
+                new_movement_score(info)
 
             def new_slide_info(from_piece, from_idx, to_idx, slide_idx, slide):
                 info = MovementInfoSlide(from_piece, from_idx, to_idx, slide_idx = slide_idx, slide = slide)
                 seen_by[to_idx].add(info)
-                movecount[from_piece.team] += 1
+                new_movement_score(info)
 
             def new_move(from_piece, from_idx, to_piece, to_idx):
                 pieces = {piece : idx for piece, idx in self.pieces.items()}
@@ -379,7 +389,7 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                 if type(piece) in {Prince, King}:
                     do_teleports(piece, idx, self.KING_MOVES[idx])
                                 
-            return actual_moves, seen_by, movecount
+            return actual_moves, seen_by, movement_score
 
         def get_pseudo_moves(self):
             return self._board_info[0]
@@ -408,10 +418,6 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
 
         @functools.cache
         def static_eval(self, team):
-            type(self).LEAF_COUNT += 1
-##            if type(self).LEAF_COUNT % 100 == 0:
-##                print(type(self).LEAF_COUNT)
-
             def compute_score():
                 if len(self.get_moves()) == 0:
                     for info in self.seen_by(self.king_idx[self.turn]):
@@ -428,15 +434,16 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                         total += piece.team * type(piece).VALUE
                         #pawn adv
                         if type(piece) == Pawn:
-                            total += piece.team * 0.2 * piece.adv
-                        
+                            total += piece.team * 0.1 * piece.adv
                     #avalable moves
-                    for t, c in self._board_info[2].items():
-                        total += 0.05 * t * c
+                    for t, sc in self._board_info[2].items():
+                        total += t * sc
                     return team * total
 
             score = compute_score()
             self.update_best_known_score(score, 0)
+            type(self).NODE_COUNT += 1
+            type(self).LEAF_COUNT += 1
             return score
 
         def quiesce(self, alpha, beta, depth):
@@ -455,6 +462,7 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                     return beta
                 if score > alpha:
                    alpha = score
+            type(self).NODE_COUNT += 1
             return alpha
 
 
@@ -471,6 +479,7 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                 if score > alpha:
                     alpha = score
             self.update_best_known_score(alpha, depthleft)
+            type(self).NODE_COUNT += 1
             return alpha
         
         def alpha_beta_root(self, depthleft, depth = 0):
@@ -484,6 +493,7 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                     alpha = score
                     best_move = move
             self.update_best_known_score(alpha, depthleft)
+            type(self).NODE_COUNT += 1
             return best_move, alpha
 
         def best_move_search(self, dt):
@@ -494,9 +504,10 @@ def generate_abstract_board_class(num_squares, flat_nbs, flat_opp, diag_nbs, dia
                     while self.current_best_depth < 3:
                         self.current_best_move, score = self.alpha_beta_root(self.current_best_depth + 1)
                         self.current_best_depth += 1
-                        print(f"depth = {self.current_best_depth}q{type(self).MAX_Q_DEPTH}, leaves = {type(self).LEAF_COUNT}, score = {round(self.turn * score, 2)}", "    ", self.current_best_move.select_idx, "->", self.current_best_move.perform_idx)
+                        print(f"depth = {self.current_best_depth}q{type(self).MAX_Q_DEPTH}, nodes = {type(self).NODE_COUNT}, leaves = {type(self).LEAF_COUNT}, score = {round(self.turn * score, 2)}", "    ", self.current_best_move.select_idx, "->", self.current_best_move.perform_idx)
                         type(self).MAX_Q_DEPTH = 0
                         type(self).LEAF_COUNT = 0
+                        type(self).NODE_COUNT = 0
                 except OutOfTime:
                     pass
                         
