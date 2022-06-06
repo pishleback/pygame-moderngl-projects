@@ -2,7 +2,7 @@ import pgbase
 import pygame
 import moderngl
 import math
-from chessai import board
+from chessai import boardai
 import sys
 import os
 import functools
@@ -73,35 +73,29 @@ def pawn_moves(team, idx):
         assert False
 
 
-STARTING_LAYOUT = {}
+STARTING_LAYOUT = set()
 for x in range(8):
-    STARTING_LAYOUT[board.Pawn(1, False)] = sq_to_idx([x, 1])
-    STARTING_LAYOUT[board.Pawn(-1, False)] = sq_to_idx([x, 6])
-STARTING_LAYOUT[board.Rook(1, False)] = sq_to_idx([0, 0])
-STARTING_LAYOUT[board.Knight(1, False)] = sq_to_idx([1, 0])
-STARTING_LAYOUT[board.Bishop(1, False)] = sq_to_idx([2, 0])
-STARTING_LAYOUT[board.King(1, False, castles = [])] = sq_to_idx([3, 0])
-STARTING_LAYOUT[board.Queen(1, False)] = sq_to_idx([4, 0])
-STARTING_LAYOUT[board.Bishop(1, False)] = sq_to_idx([5, 0])
-STARTING_LAYOUT[board.Knight(1, False)] = sq_to_idx([6, 0])
-STARTING_LAYOUT[board.Rook(1, False)] = sq_to_idx([7, 0])
-STARTING_LAYOUT[board.Rook(-1, False)] = sq_to_idx([0, 7])
-STARTING_LAYOUT[board.Knight(-1, False)] = sq_to_idx([1, 7])
-STARTING_LAYOUT[board.Bishop(-1, False)] = sq_to_idx([2, 7])
-STARTING_LAYOUT[board.King(-1, False, castles = [])] = sq_to_idx([3, 7])
-STARTING_LAYOUT[board.Queen(-1, False)] = sq_to_idx([4, 7])
-STARTING_LAYOUT[board.Bishop(-1, False)] = sq_to_idx([5, 7])
-STARTING_LAYOUT[board.Knight(-1, False)] = sq_to_idx([6, 7])
-STARTING_LAYOUT[board.Rook(-1, False)] = sq_to_idx([7, 7])
+    STARTING_LAYOUT.add(boardai.Pawn(sq_to_idx([x, 1]), 1, False))
+    STARTING_LAYOUT.add(boardai.Pawn(sq_to_idx([x, 6]), -1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx([0, 0]), 1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx([1, 0]), 1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx([2, 0]), 1, False))
+STARTING_LAYOUT.add(boardai.King(sq_to_idx([3, 0]), 1, False, castles = tuple([])))
+STARTING_LAYOUT.add(boardai.Queen(sq_to_idx([4, 0]), 1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx([5, 0]), 1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx([6, 0]), 1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx([7, 0]), 1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx([0, 7]), -1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx([1, 7]), -1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx([2, 7]), -1, False))
+STARTING_LAYOUT.add(boardai.King(sq_to_idx([3, 7]), -1, False, castles = tuple([])))
+STARTING_LAYOUT.add(boardai.Queen(sq_to_idx([4, 7]), -1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx([5, 7]), -1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx([6, 7]), -1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx([7, 7]), -1, False))
 
-Board = board.generate_abstract_board_class(8 * 8, flat_nbs, opp, diag_nbs, opp, pawn_moves, STARTING_LAYOUT)
+BOARD_SIGNATURE = boardai.BoardSignature(8 * 8, flat_nbs, opp, diag_nbs, opp, pawn_moves, STARTING_LAYOUT)
 
-##print(Board.FLAT_SLIDE)
-##print(Board.DIAG_SLIDE)
-##print(Board.KNIGHT_MOVES)
-##print(Board.KING_MOVES)
-##print(Board.PAWN_MOVES)
-##print(Board.PAWN_ATTACKS)
 
 
 class BoardView(pgbase.canvas2d.Window2D):
@@ -121,17 +115,22 @@ class BoardView(pgbase.canvas2d.Window2D):
 
         self.board = None
         self.moves = []
-        self.set_board(Board.starting_board())
+        self.ai_player = None
 
         self.selected_piece = None
         self.last_move = None
         self.last_interact_time = time.time()
+        self.draw_board = None
+
+
+        self.set_board(BOARD_SIGNATURE.starting_board())
+
 
     def make_move(self, move):
+        new_board = move.to_board
         if not self.board is None:
-            self.board.cache_clear({move.to_board})
-        assert self.board is move.from_board
-        self.set_board(move.to_board)
+            self.board.cache_clear()
+        self.set_board(new_board)
         self.last_move = move
 
     def set_board(self, board):
@@ -140,6 +139,7 @@ class BoardView(pgbase.canvas2d.Window2D):
         self.board = board
         self.moves = tuple(board.get_moves())
         self.selected_piece = None
+        self.ai_player = boardai.AiPlayer(self.board)
 
 ##        print("========")
 ##        for x in range(8):
@@ -160,10 +160,20 @@ class BoardView(pgbase.canvas2d.Window2D):
         super().set_rect(rect)
 
     def tick(self, tps):
-        if time.time() - self.last_interact_time > 1:
-            self.board.best_move_search(0.5)
-##        if time.time() - self.last_interact_time > 1 and time.time() - self.last_move_time > 1 and not self.board.current_best_move is None:
+        if not self.ai_player is None:
+            self.ai_player.tick()
+            if self.ai_player.search_depth > 3:
+                self.make_move(self.ai_player.best_move)
+
+##        try:
+##            if time.time() - self.last_interact_time > 1:
+##                self.board.best_move_search(0.5)
+##        except boardai.ShowBoardException as e:
+##            print(e)
+##            self.draw_board = e.board
+##        if time.time() - self.last_interact_time > 2 and time.time() - self.last_move_time > 3 and not self.board.current_best_move is None:
 ##            self.make_move(self.board.current_best_move)
+
             
         
     def event(self, event):
@@ -179,7 +189,7 @@ class BoardView(pgbase.canvas2d.Window2D):
                     
                     if not self.selected_piece is None:
                         for move in self.moves:
-                            if move.select_idx == self.board.pieces[self.selected_piece] and move.perform_idx == idx:
+                            if move.select_idx == self.selected_piece.idx and move.perform_idx == idx:
                                 self.make_move(move)
                                 return
                             
@@ -196,34 +206,34 @@ class BoardView(pgbase.canvas2d.Window2D):
                 
     @functools.cache
     def piece_surf(self, piece):
-        assert type(piece) in board.VALID_SQUARES
+        assert type(piece) in boardai.VALID_SQUARES
         if piece.team == 1:
-            if type(piece) == board.Pawn:
+            if type(piece) == boardai.Pawn:
                 img = "white pawn.png"
-            elif type(piece) == board.Rook:
+            elif type(piece) == boardai.Rook:
                 img = "white rook.png"
-            elif type(piece) == board.Knight:
+            elif type(piece) == boardai.Knight:
                 img = "white knight.png"
-            elif type(piece) == board.Bishop:
+            elif type(piece) == boardai.Bishop:
                 img = "white bishop.png"
-            elif type(piece) == board.Queen:
+            elif type(piece) == boardai.Queen:
                 img = "white queen.png"
-            elif type(piece) == board.King:
+            elif type(piece) == boardai.King:
                 img = "white king.png"
             else:
                 raise NotImplementedError(f"no icon for {piece}")
         elif piece.team == -1:
-            if type(piece) == board.Pawn:
+            if type(piece) == boardai.Pawn:
                 img = "black pawn.png"
-            elif type(piece) == board.Rook:
+            elif type(piece) == boardai.Rook:
                 img = "black rook.png"
-            elif type(piece) == board.Knight:
+            elif type(piece) == boardai.Knight:
                 img = "black knight.png"
-            elif type(piece) == board.Bishop:
+            elif type(piece) == boardai.Bishop:
                 img = "black bishop.png"
-            elif type(piece) == board.Queen:
+            elif type(piece) == boardai.Queen:
                 img = "black queen.png"
-            elif type(piece) == board.King:
+            elif type(piece) == boardai.King:
                 img = "black king.png"
             else:
                 raise NotImplementedError(f"no icon for {piece}")
@@ -243,13 +253,14 @@ class BoardView(pgbase.canvas2d.Window2D):
 
         draw_surf = pygame.Surface([self.width, self.height], flags = pygame.SRCALPHA)
         draw_surf.blit(self.bg_surf, (0, 0))
-        for piece, idx in self.board.pieces.items():
-            sqx, sqy = idx_to_sq(idx)
+        for piece in (self.board.pieces if self.draw_board is None else self.draw_board.pieces):
+            sqx, sqy = idx_to_sq(piece.idx)
             x, y, _, _ = self.get_sq_rect(sqx, sqy)
             draw_surf.blit(self.piece_surf(piece), (x, y))
 
-        best_move = self.board.current_best_move
-        if not best_move is None:
+        
+        if not self.ai_player is None:   
+            best_move = self.ai_player.best_move
             for idx in [best_move.select_idx, best_move.perform_idx]:
                 sqx, sqy = idx_to_sq(idx)
                 rect = self.get_sq_rect(sqx, sqy)
@@ -262,12 +273,12 @@ class BoardView(pgbase.canvas2d.Window2D):
                 pygame.draw.rect(draw_surf, (255, 255, 0), rect, 8)
 
         if not self.selected_piece is None:
-            sqx, sqy = idx_to_sq(self.board.pieces[self.selected_piece])
+            sqx, sqy = idx_to_sq(self.selected_piece.idx)
             rect = self.get_sq_rect(sqx, sqy)
             pygame.draw.rect(draw_surf, (0, 128, 255), rect, 8)
 
             for move in self.moves:
-                if move.select_idx == self.board.pieces[self.selected_piece]:
+                if move.select_idx == self.selected_piece.idx:
                     sqx, sqy = idx_to_sq(move.perform_idx)
                     rect = self.get_sq_rect(sqx, sqy)
                     colour = (0, 255, 0)
@@ -278,6 +289,12 @@ class BoardView(pgbase.canvas2d.Window2D):
         tex = pgbase.tools.np_uint8_to_tex(self.ctx, pgbase.tools.pysurf_to_np_uint8(draw_surf).transpose([1, 0, 2]))
         pgbase.tools.render_tex(tex)
         tex.release() #to avoid memory issues lol
+
+    def end(self, e):
+        #terminate ai subprocesses
+        if not self.ai_player:
+            del self.ai_player
+        self.ai_player = None
         
 
 

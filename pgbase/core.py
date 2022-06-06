@@ -1,5 +1,6 @@
 import pygame
 import moderngl
+import sys
 
 class Window():
     screen = None
@@ -45,6 +46,8 @@ class Window():
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 raise ExitException()
+    def end(self, e):
+        pass
 
 
 
@@ -70,6 +73,6 @@ def run(window):
             window.draw()
             pygame.display.flip()
 
-    except ExitException:
-        pass
+    except ExitException as e:
+        window.end(e)
 
