@@ -246,10 +246,12 @@ class Board():
 
         def is_legal(self, from_board, is_checked, seen_by):
             if type(self.kingp) == King:
-                for kingp_intermediate_idx in list(self.castle_info.nocheck) + [self.castle_info.king_to]:
+                #musn't be in check, end up in check, or move through check
+                for kingp_intermediate_idx in list(self.castle_info.nocheck) + [self.castle_info.king_to] + [self.kingp.idx]:
                     for info in seen_by[kingp_intermediate_idx]:
                         if info.piece.team != from_board.turn:
                             return False
+                #otherwise we can castle
                 if type(self).VERIFY_LEGAL:
                     assert super().is_legal(from_board, is_checked, seen_by)
                 return True
@@ -583,15 +585,15 @@ class AiPlayer():
 
 
     @classmethod
-    def sort_moves(cls, moves, path, maxpath, move_score_queue, move_scores, depth):
-        #we want to try the most promising moves first so that alpha-beta pruning is most effective
-        for m_id, move in enumerate(moves):
-            if not move in move_scores:
-                score = move.to_board.static_eval()
-                info = (path, maxpath, score, -1, False)
-                move_scores[tuple(path + [m_id])] = score
-                move_score_queue.put((path + [m_id], maxpath + [len(moves) - 1], score, -1, False))
-        return sorted(enumerate(moves), key = lambda pair : move_scores[tuple(path + [pair[0]])])
+    def sort_moves(cls, moves, path, maxpath, move_scores):
+##        #we want to try the most promising moves first so that alpha-beta pruning is most effective
+##        for m_id, move in enumerate(moves):
+##            if not move in move_scores:
+##                score = move.to_board.static_eval()
+##                info = (path, maxpath, score, -1, False)
+##                move_scores[tuple(path + [m_id])] = score
+####                move_score_queue.put((path + [m_id], maxpath + [len(moves) - 1], score, -1, False))
+        return sorted(enumerate(moves), key = lambda pair : (move_scores[tuple(path + [pair[0]])] if tuple(path + [pair[0]]) in move_scores else pair[1].to_board.static_eval()))
         
 
 
@@ -601,26 +603,26 @@ class AiPlayer():
         stand_pat = board.static_eval()
         if stand_pat >= beta:
             leaf_count.value += 1
-            #move_score_queue.put((path, maxpath, beta, depth, True))
+            move_score_queue.put((path, maxpath, beta, depth, True))
             return beta
         if alpha < stand_pat:
             alpha = stand_pat
         moves = board.get_moves()
         if len(moves) == 0:
             leaf_count.value += 1
-        for m_id, move in cls.sort_moves(moves, path, maxpath, move_score_queue, move_scores, depth):
+        for m_id, move in cls.sort_moves(moves, path, maxpath, move_scores):
             if move.is_capture:
                 if stand_pat + type(move.take_piece).VALUE < alpha:
                     #delta prune - we can already do better than taking this piece elsewhere
-                    #move_score_queue.put((path, maxpath, alpha, depth, True))
+                    move_score_queue.put((path, maxpath, alpha, depth, True))
                     return alpha
                 score = -cls.quiesce(move.to_board, path + [m_id], maxpath + [len(moves) - 1], move_score_queue, move_scores, -beta, -alpha, depth + 1, max_qdepth, leaf_count)
                 if score >= beta:
-                    #move_score_queue.put((path, maxpath, beta, depth, True))
+                    move_score_queue.put((path, maxpath, beta, depth, True))
                     return beta
                 if score > alpha:
                    alpha = score
-        #move_score_queue.put((path, maxpath, alpha, depth, True))
+        move_score_queue.put((path, maxpath, alpha, depth, True))
         return alpha
 
     @classmethod
@@ -631,7 +633,7 @@ class AiPlayer():
             move_score_queue.put((path, maxpath, score, depthleft, False))
             return score
         moves = board.get_moves()
-        for m_id, move in cls.sort_moves(moves, path, maxpath, move_score_queue, move_scores, depth):
+        for m_id, move in cls.sort_moves(moves, path, maxpath, move_scores):
             score = -cls.alpha_beta(move.to_board, path + [m_id], maxpath + [len(moves) - 1], move_score_queue, move_scores, -beta, -alpha, depthleft - 1, depth + 1, max_qdepth, leaf_count)
             if score >= beta:
                 move_score_queue.put((path, maxpath, beta, depthleft, False))
@@ -701,7 +703,8 @@ class AiPlayer():
         self.qdepth = 0
         self.leaf_count = 0
         self.alpha = -math.inf
-        self.moves_to_try = list(enumerate(self.board.get_moves()))
+                
+        self.moves_to_try = list(reversed(type(self).sort_moves(self.board.get_moves(), [], [], self.move_scores))) #reversed becasue we pop from the right of th list
         self.search_depth = search_depth
         print(len(self.moves_to_try), end = " ")
 
@@ -723,8 +726,8 @@ class AiPlayer():
     def alpha_beta_root(self, depthleft):
         self.search_depth = depthleft
         if depthleft == 0:
-            self.best_move_idx = random.choice(range(len(self.board.get_moves())))
-            self.best_move_score = -math.inf
+            self.best_move_idx_current_search = random.choice(range(len(self.board.get_moves())))
+            self.alpha = 0
         else:
             assert depthleft >= 1
             max_qdepth = multiprocessing.Value(ctypes.c_int64, 0)
@@ -743,9 +746,11 @@ class AiPlayer():
             self.leaf_count = int(leaf_count.value)
             while not move_score_queue.empty():
                 self.new_move_score_info(*move_score_queue.get())
-            self.print_done_message()
-            self.best_move_idx = best_move_id
-            self.best_move_score = score
+            self.best_move_idx_current_search = best_move_id
+        self.best_move_idx = self.best_move_idx_current_search
+        self.best_move_score = self.alpha
+        self.print_done_message()
+
 
     def tick(self):    
         was_progress = False
