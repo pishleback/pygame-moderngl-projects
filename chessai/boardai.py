@@ -72,6 +72,21 @@ class EnPassant():
     take_idx : int
     pawn : Pawn
 
+
+
+
+@dataclasses.dataclass
+class MoveSelectionPoint():
+    INVIS = 0
+    REGULAR = 1
+    CAPTURE = 2
+    SPECIAL = 3
+    idx : int
+    kind : int = dataclasses.field(default = REGULAR)
+
+    
+    
+
 VALID_PIECES = {Pawn, Rook, Knight, Bishop, Queen, Prince, King}
 
 
@@ -87,11 +102,16 @@ class ShowBoardException(Exception):
 
 
 class BoardSignature():
-    def __init__(self, num_squares, flat_nbs, flat_opp, diag_nbs, diag_opp, pawn_moves, starting_layout):
+    def __init__(self, num_squares, flat_nbs, flat_opp, diag_nbs, diag_opp, pawn_moves, pawn_promotions, starting_layout):
         assert type(num_squares) == int and num_squares >= 0
         for piece in starting_layout:
             assert type(piece) in VALID_PIECES
             assert 0 <= piece.idx < num_squares
+
+        for team in {-1, 1}:
+            for idx, prom in pawn_promotions(team):
+                for piece, sel_idx in prom:
+                    assert piece.idx == idx
 
         #flat_nbs : return the immediate neigbours of a square from the pov of a rook
         #flat_opp : return all possible next steps of a rook after moving from one square to a neigbour
@@ -163,6 +183,11 @@ class BoardSignature():
         self.PAWN_MOVES = {team : {idx : tuple(tuple([m1, tuple(m2s)]) for m1, m2s in pawn_moves(team, idx)) for idx in range(num_squares)} for team in {-1, 1}}
         self.PAWN_ATTACKS = {team : {idx : tuple(set(pawn_attacks(team, idx))) for idx in range(num_squares)} for team in {-1, 1}}
         self.STARTING_LAYOUT = starting_layout
+        self.PAWN_PROMS = {}
+        for team in {-1, 1}:
+            self.PAWN_PROMS[team] = {}
+            for idx, prom in pawn_promotions(team):
+                self.PAWN_PROMS[team][idx] = tuple((piece, sel_idx) for piece, sel_idx in prom)
 
     def starting_board(self):
         return Board(self, 0, self.STARTING_LAYOUT, 1)
@@ -191,9 +216,11 @@ class Board():
     class ActualMove():
         VERIFY_LEGAL = False
         
-        def __init__(self, select_idx, perform_idx, to_board):
-            self.select_idx = select_idx
-            self.perform_idx = perform_idx
+        def __init__(self, select_points, to_board):
+            assert len(select_points) >= 1
+            for select_point in select_points:
+                assert isinstance(select_point, MoveSelectionPoint)
+            self.select_points = select_points
             self.to_board = to_board
 
         @property
@@ -384,18 +411,24 @@ class Board():
             seen_by[to_idx].add(info)
             new_movement_score(info)
 
-        def new_move(from_piece, to_piece):
+        def new_move(from_piece, to_piece, sel_idxs = []):
             pieces = set(self.pieces)
             pieces.remove(from_piece)
             pieces.add(to_piece)
-            pseudo_moves.append(Board.ActualNormalMove(from_piece.idx, to_piece.idx, Board(self.sig, self.num + 1, pieces, -self.turn), moving_piece = piece, to_piece = to_piece, take_piece = None))
+            selection_points = [MoveSelectionPoint(from_piece.idx, MoveSelectionPoint.INVIS), MoveSelectionPoint(to_piece.idx, MoveSelectionPoint.REGULAR)]
+            for sel_idx in sel_idxs:
+                selection_points.append(MoveSelectionPoint(sel_idx, MoveSelectionPoint.SPECIAL))
+            pseudo_moves.append(Board.ActualNormalMove(selection_points, Board(self.sig, self.num + 1, pieces, -self.turn), moving_piece = piece, to_piece = to_piece, take_piece = None))
 
-        def new_take(from_piece, to_piece, take_piece):
+        def new_take(from_piece, to_piece, take_piece, sel_idxs = []):
             pieces = set(self.pieces)
             pieces.remove(from_piece)
             pieces.remove(take_piece)
             pieces.add(to_piece)
-            pseudo_moves.append(Board.ActualNormalMove(from_piece.idx, to_piece.idx, Board(self.sig, self.num + 1, pieces, -self.turn), moving_piece = piece, to_piece = to_piece, take_piece = take_piece))
+            selection_points = [MoveSelectionPoint(from_piece.idx, MoveSelectionPoint.INVIS), MoveSelectionPoint(to_piece.idx, MoveSelectionPoint.CAPTURE)]
+            for sel_idx in sel_idxs:
+                selection_points.append(MoveSelectionPoint(sel_idx, MoveSelectionPoint.SPECIAL))
+            pseudo_moves.append(Board.ActualNormalMove(selection_points, Board(self.sig, self.num + 1, pieces, -self.turn), moving_piece = piece, to_piece = to_piece, take_piece = take_piece))
 
         def do_slides(piece, idx, slides):
             for slide in slides:
@@ -428,16 +461,20 @@ class Board():
                     for move1, move2s in self.sig.PAWN_MOVES[piece.team][idx]:
                         #pawn move 1 foward
                         if not move1 in self.idx_piece_lookup:
-                            new_move(piece, Pawn(move1, piece.team, True))
-                            #pawn move 2 foward
-                            for move2 in move2s:
-                                if not move2 in self.idx_piece_lookup:
-                                    to_pawn = Pawn(move2, piece.team, True)
-                                    pieces = set(self.pieces)
-                                    pieces.remove(piece)
-                                    pieces.add(to_pawn)
-                                    move_board = Board(self.sig, self.num + 1, pieces, -self.turn, en_passant = {EnPassant(move1, to_pawn)})
-                                    pseudo_moves.append(Board.ActualNormalMove(piece.idx, to_pawn.idx, move_board, moving_piece = piece, to_piece = to_pawn, take_piece = None))
+                            if move1 in self.sig.PAWN_PROMS[piece.team]:
+                                for prom_piece, sel_idx in self.sig.PAWN_PROMS[piece.team][move1]:
+                                    new_move(piece, prom_piece, sel_idxs = [sel_idx])
+                            else:
+                                new_move(piece, Pawn(move1, piece.team, True))
+                                #pawn move 2 foward
+                                for move2 in move2s:
+                                    if not move2 in self.idx_piece_lookup:
+                                        to_pawn = Pawn(move2, piece.team, True)
+                                        pieces = set(self.pieces)
+                                        pieces.remove(piece)
+                                        pieces.add(to_pawn)
+                                        move_board = Board(self.sig, self.num + 1, pieces, -self.turn, en_passant = {EnPassant(move1, to_pawn)})
+                                        pseudo_moves.append(Board.ActualNormalMove([MoveSelectionPoint(piece.idx, MoveSelectionPoint.INVIS), MoveSelectionPoint(to_pawn.idx, MoveSelectionPoint.REGULAR)], move_board, moving_piece = piece, to_piece = to_pawn, take_piece = None))
 
                                     
                 #pawn attack
@@ -446,7 +483,11 @@ class Board():
                     if move_idx in self.idx_piece_lookup:
                         blocking_piece = self.idx_piece_lookup[move_idx]
                         if piece.team == self.turn and blocking_piece.team != piece.team:
-                            new_take(piece, Pawn(move_idx, piece.team, True), blocking_piece)
+                            if move_idx in self.sig.PAWN_PROMS[piece.team]:
+                                for prom_piece, sel_idx in self.sig.PAWN_PROMS[piece.team][move_idx]:
+                                    new_take(piece, prom_piece, blocking_piece, sel_idxs = [sel_idx])
+                            else:
+                                new_take(piece, Pawn(move_idx, piece.team, True), blocking_piece)
                     else:
                         for en_passant_info in self.en_passant:
                             if move_idx == en_passant_info.take_idx and en_passant_info.pawn.team != piece.team:
@@ -456,7 +497,7 @@ class Board():
                                 pieces.remove(en_passant_info.pawn)
                                 pieces.add(to_piece)
                                 move_board = Board(self.sig, self.num + 1, pieces, -self.turn)
-                                pseudo_moves.append(Board.ActualEnPassantMove(piece.idx, move_idx, move_board))
+                                pseudo_moves.append(Board.ActualEnPassantMove([MoveSelectionPoint(piece.idx, MoveSelectionPoint.INVIS), MoveSelectionPoint(move_idx, MoveSelectionPoint.SPECIAL)], move_board))
                             
             if type(piece) in {Rook, Queen}:
                 do_slides(piece, idx, self.sig.FLAT_SLIDE[idx])
@@ -480,7 +521,7 @@ class Board():
                                     pieces.remove(piece)
                                     pieces.add(moved_king)
                                     pieces.add(moved_piece)
-                                    pseudo_moves.append(Board.ActualCastleMove(kingp.idx, moved_king.idx, Board(self.sig, self.num + 1, pieces, -self.turn), kingp = kingp, castle_info = castle_info))
+                                    pseudo_moves.append(Board.ActualCastleMove([MoveSelectionPoint(kingp.idx, MoveSelectionPoint.INVIS), MoveSelectionPoint(moved_king.idx, MoveSelectionPoint.SPECIAL)], Board(self.sig, self.num + 1, pieces, -self.turn), kingp = kingp, castle_info = castle_info))
                             
 
         def compute_is_checked(team):
