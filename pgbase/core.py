@@ -47,7 +47,7 @@ class Window():
             if event.key == pygame.K_ESCAPE:
                 raise ExitException()
     def end(self, e):
-        pass
+        self.ctx.release()
 
 
 
