@@ -2,6 +2,7 @@
 A collection of projects using pygame and moderngl.
 Contains code for drawing stuff in 2d, 3d, and higher dimensions.
 Implements depth peeling for order dependent transparency when rendering in 3d.
+![Capture](https://user-images.githubusercontent.com/11195846/172716025-1e8a9221-5a7d-4466-9343-f100a9b99c2b.PNG)
 ## Mandelbrot Set
 Renders the mandelbrot using double-precision floating-point values in GLSL.
 Includes quality of life features such as itterative deepening and saving previously rendered portions as textures to be drawn over areas where a new render has not yet been performed.
