@@ -24,6 +24,31 @@ class Model():
 
 
 
+
+FRAG_MAIN = """
+vec3 v_pos = v_pos_h.xyz / v_pos_h.w;
+vec3 cam_vec = normalize(v_pos - cam_pos);
+
+vec3 light = normalize(vec3(1, -1, 1));
+vec3 normal = normalize(v_normal);
+float diff = abs(dot(light, normal));
+float spec = pow(abs(dot(-cam_vec, reflect(light, normal))), 10);
+
+float thicc = 1 / abs(dot(normal, cam_vec));
+float alpha = 1 - max(0, pow(1 - v_colour.a, thicc)); //max(0, x) used to avoid weird flickering for some reason
+
+spec *= alpha;
+
+f_colour = vec4((0.7 + 0.3 * diff) * v_colour.rgb + spec * (1 - v_colour.rgb), alpha + spec * (1 - alpha));
+if (do_peel) {
+    if (gl_FragCoord.z <= texture2D(peel_tex, gl_FragCoord.xy / scr_size).x) {
+        discard;
+    }
+}
+"""
+
+
+
 class BaseModel(Model):
     def __init__(self, vertex_shader, geometry_shader):
         self.vertex_shader = vertex_shader
@@ -51,27 +76,7 @@ class BaseModel(Model):
                 uniform int depth;
                 uniform vec3 cam_pos;
                 out vec4 f_colour;
-                void main() {
-                    vec3 v_pos = v_pos_h.xyz / v_pos_h.w;
-                    vec3 cam_vec = normalize(v_pos - cam_pos);
-                
-                    vec3 light = normalize(vec3(1, -1, 1));
-                    vec3 normal = normalize(v_normal);
-                    float diff = abs(dot(light, normal));
-                    float spec = pow(abs(dot(-cam_vec, reflect(light, normal))), 10);
-
-                    float thicc = 1 / abs(dot(normal, cam_vec));
-                    float alpha = 1 - max(0, pow(1 - v_colour.a, thicc)); //max(0, x) used to avoid weird flickering for some reason
-
-                    spec *= alpha;
-                
-                    f_colour = vec4((0.7 + 0.3 * diff) * v_colour.rgb + spec * (1 - v_colour.rgb), alpha + spec * (1 - alpha));
-                    if (do_peel) {
-                        if (gl_FragCoord.z <= texture2D(peel_tex, gl_FragCoord.xy / scr_size).x) {
-                            discard;
-                        }
-                    }
-                }"""
+                void main() {""" + FRAG_MAIN + "}"
         )
 
         vao, mode, num_instances = self.make_vao(prog)
@@ -717,21 +722,6 @@ class Window(pgbase.core.Window):
         super().set_rect(rect)
         self.clear_renderer_cache()
 
-##    def pygame_to_gl(self, pos):
-##        return np.array([2 * pos[0] / self.width - 1, 1 - 2 * pos[1] / self.height])
-##    def gl_to_pygame(self, pos):
-##        return np.array([self.width * (0.5 + 0.5 * pos[0]), self.height * (0.5 - 0.5 * pos[1])])
-##
-##    def gl_to_world(self, pos):
-##        return self.cam_mat @ np.array(pos) + self.center
-##    def world_to_gl(self, pos):
-##        return np.linalg.inv(self.cam_mat) @ np.array(np.array(pos) - self.center)
-##
-##    def pygame_to_world(self, pos):
-##        return self.gl_to_world(self.pygame_to_gl(pos))
-##    def world_to_pygame(self, pos):
-##        return self.gl_to_pygame(self.world_to_gl(pos))
-
     def set_uniforms(self, progs, peel_tex, depth):
         width, height = self.rect[2:4]
         camera = self.camera
@@ -848,9 +838,6 @@ class Window(pgbase.core.Window):
     def tick(self, dt):
         super().tick(dt)
         self.camera.tick(dt)
-
-##        if self.has_focus:
-##            pygame.mouse.set_pos([self.rect[0] + 0.5 * self.rect[2], self.rect[1] + 0.5 * self.rect[3]])
         
     def event(self, event):
         if event.type == pygame.MOUSEMOTION:
@@ -866,7 +853,6 @@ class Window(pgbase.core.Window):
                     return
 
         super().event(event)
-
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if pgbase.tools.in_rect(event.pos, self.rect):
