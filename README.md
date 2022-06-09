@@ -18,4 +18,6 @@ For drawing and editing family trees.
 ## Chess Ai
 For playing chess
 ![Capture](https://user-images.githubusercontent.com/11195846/172492421-4f6cf747-c8ce-4265-b872-43f17b39dc6f.PNG)
-I will soon be making an ai and 3d display for "wormhole chess" - a version of chess played on a two sided board with a wormhole through the middle.
+## Wormhole Chess Ai
+A version of chess played on a two sided board with a wormhole through the middle.
+![Capture](https://user-images.githubusercontent.com/11195846/172842939-0a22de29-aeee-4322-8abf-14dff54e86cf.PNG)
