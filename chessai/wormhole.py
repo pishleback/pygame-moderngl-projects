@@ -9,6 +9,24 @@ import dataclasses
 import os
 import random
 
+BOARD_VERTEX_SHADER = """
+#version 430
+uniform mat4 proj_mat;
+uniform mat4 view_mat;
+
+in vec3 vert;
+in vec3 normal;
+
+out vec3 v_normal;
+out vec4 v_pos_h;
+
+void main() {
+    v_normal = normal;
+    v_pos_h = vec4(vert, 1);
+    gl_Position = proj_mat * view_mat * vec4(vert, 1);
+}
+"""
+
 
 @dataclasses.dataclass(frozen = True)
 class WormSq():
@@ -18,6 +36,7 @@ class WormSq():
         #return the index(s) of this square in the array of colours passed to glsl for rendering.
         #yield part, idx where part in {0, 1, 2} specifies whether the square is the top, bottom or wormhole
         #and where idx is the index in the array for that particular shader.
+        raise NotImplementedError()
         return
         yield
 
@@ -105,10 +124,13 @@ for x in range(8):
 for lay in range(4):
     for rot in range(12):
         ALL_SQ.append(WormSqHole(lay, rot))
-        
 
+@functools.cache
+def sq_to_idx(sq):
+    return ALL_SQ.index(sq)
 
-
+def idx_to_sq(idx):
+    return ALL_SQ[idx]
     
 
 
@@ -129,42 +151,27 @@ class FlatModel(pgbase.canvas3d.Model):
         normals = [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]]
         indices = [[0, 1, 3], [0, 2, 3]]
         return verticies, normals, indices
-
-    def make_vao(self, prog):
+        
+    def make_vao(self, prog, include_normals = True):
         ctx = prog.ctx
         
         vertices, normals, indices = self.triangles()
-        
-        vertices = ctx.buffer(np.array(vertices).astype('f4'))
-        normals = ctx.buffer(np.array(normals).astype('f4'))
+
+        atribs = []
+        atribs.append((ctx.buffer(np.array(vertices).astype('f4')), "3f4", "vert"))
+        if include_normals:
+            atribs.append((ctx.buffer(np.array(normals).astype('f4')), "3f4", "normal"))
         indices = ctx.buffer(np.array(indices))
         
         vao = ctx.vertex_array(prog,
-                               [(vertices, "3f4", "vert"),
-                                (normals, "3f4", "normal")],
+                               atribs,
                                indices)
 
         return vao, moderngl.TRIANGLES
 
     def make_renderer(self, ctx):            
         prog = ctx.program(
-            vertex_shader = """
-                #version 430
-                uniform mat4 proj_mat;
-                uniform mat4 view_mat;
-                
-                in vec3 vert;
-                in vec3 normal;
-                
-                out vec3 v_normal;
-                out vec4 v_pos_h;
-
-                void main() {
-                    v_normal = normal;
-                    v_pos_h = vec4(vert, 1);
-                    gl_Position = proj_mat * view_mat * vec4(vert, 1);
-                }
-            """,
+            vertex_shader = BOARD_VERTEX_SHADER,
             geometry_shader = None,
             fragment_shader = """
                 #version 430
@@ -199,6 +206,49 @@ class FlatModel(pgbase.canvas3d.Model):
                 vao.render(mode, instances = 1)
 
         return ModelRenderer(prog)
+
+    @functools.cache
+    def clickdet_render(self, ctx):
+        prog = ctx.program(
+            vertex_shader = BOARD_VERTEX_SHADER,
+            geometry_shader = None,
+            fragment_shader = """
+                #version 430
+                in vec4 v_pos_h;
+                in vec3 v_normal;
+                uniform sampler2D peel_tex;
+                uniform vec2 scr_size;
+                uniform bool do_peel;
+                uniform int depth;
+                uniform vec3 cam_pos;
+                out float f_colour;
+                uniform bool[64] v_bool_arr;
+                
+                void main() {
+                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z < 5) {
+                        discard;
+                    }
+                    bool is_active = v_bool_arr[int(floor(v_pos_h.x + 4) + 8 * floor(v_pos_h.z + 4))];
+                    if (is_active) {
+                        f_colour = 1;
+                    } else {
+                        f_colour = 0;
+                    }
+                }
+                """
+        )
+
+        vao, mode = self.make_vao(prog, include_normals = False)
+
+        class Renderer():
+            def __init__(self, prog):
+                self.prog = prog
+            def __call__(self, sq_bools):
+                try: prog["v_bool_arr"].value = sq_bools
+                except KeyError: pass
+                vao.render(mode, instances = 1)
+                
+        return Renderer(prog)
 
 
 
@@ -262,48 +312,36 @@ class CircModel(pgbase.canvas3d.Model):
                 i0, i1, i2, i3 = verts[(x1, t1)][0], verts[(x2, t1)][0], verts[(x1, t2)][0], verts[(x2, t2)][0]
                 indices.append([i0, i1, i3])
                 indices.append([i0, i2, i3])
-                
-
-        #verticies = [[-4, self.sep, -4], [4, self.sep, -4], [-4, self.sep, 4], [4, self.sep, 4]]
-        #normals = [[0, 1, 0]] * len(verticies)
-        #indices = [[0, 1, 3], [0, 2, 3]]
+        
         return verticies, normals, indices
 
-    def make_vao(self, prog):
+    def make_vao(self, prog, include_normals = True):
         ctx = prog.ctx
         
         vertices, normals, indices = self.triangles()
-        
-        vertices = ctx.buffer(np.array(vertices).astype('f4'))
-        normals = ctx.buffer(np.array(normals).astype('f4'))
+
+        atribs = []
+        atribs.append((ctx.buffer(np.array(vertices).astype('f4')), "3f4", "vert"))
+        if include_normals:
+            atribs.append((ctx.buffer(np.array(normals).astype('f4')), "3f4", "normal"))
         indices = ctx.buffer(np.array(indices))
         
         vao = ctx.vertex_array(prog,
-                               [(vertices, "3f4", "vert"),
-                                (normals, "3f4", "normal")],
+                               atribs,
                                indices)
 
         return vao, moderngl.TRIANGLES
 
+
+    def set_uniforms(self, prog):
+        try: prog["sep"].value = self.sep
+        except KeyError: pass
+        try: prog["mid"].value = 0.6 * self.sep
+        except KeyError: pass
+
     def make_renderer(self, ctx):            
         prog = ctx.program(
-            vertex_shader = """
-                #version 430
-                uniform mat4 proj_mat;
-                uniform mat4 view_mat;
-                
-                in vec3 vert;
-                in vec3 normal;
-                
-                out vec3 v_normal;
-                out vec4 v_pos_h;
-
-                void main() {
-                    v_normal = normal;
-                    v_pos_h = vec4(vert, 1);
-                    gl_Position = proj_mat * view_mat * vec4(vert, 1);
-                }
-            """,
+            vertex_shader = BOARD_VERTEX_SHADER,
             geometry_shader = None,
             fragment_shader = """
                 #version 430
@@ -353,10 +391,7 @@ class CircModel(pgbase.canvas3d.Model):
                 """ + pgbase.canvas3d.FRAG_MAIN + "}"
         )
 
-        try: prog["sep"].value = self.sep
-        except KeyError: pass
-        try: prog["mid"].value = 0.6 * self.sep
-        except KeyError: pass
+        self.set_uniforms(prog)
         try: prog["v_colour_arr"].value = self.sq_colours
         except KeyError: pass
 
@@ -369,6 +404,78 @@ class CircModel(pgbase.canvas3d.Model):
                 vao.render(mode, instances = 1)
 
         return ModelRenderer(prog)
+
+    @functools.cache
+    def clickdet_render(self, ctx):
+        prog = ctx.program(
+            vertex_shader = BOARD_VERTEX_SHADER,
+            geometry_shader = None,
+            fragment_shader = """
+                #version 430
+                in vec4 v_pos_h;
+                in vec3 v_normal;
+                uniform sampler2D peel_tex;
+                uniform vec2 scr_size;
+                uniform bool do_peel;
+                uniform int depth;
+                uniform vec3 cam_pos;
+                out float f_colour;
+                uniform bool[48] v_bool_arr;
+                uniform float sep;
+                uniform float mid;
+
+                const float tau = 6.28318530718;
+                
+                void main() {
+                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z > 5) {
+                        discard;
+                    }
+
+                    float a;
+                    float b;
+                    float c;
+                    a = 4 * mod(atan(v_pos_h.x, v_pos_h.z) / tau, 1);
+                    b = a + 0.0397563521171529 * sin(tau * a);
+                    b = 3 * b;
+                    c = 3 * a;
+                    float f = (v_pos_h.y / sep);
+                    f = f * f;
+                    float t = f * b + (1 - f) * c;
+
+                    int layer;
+                    if (v_pos_h.y < -mid) {
+                        layer = 0;
+                    } else if (v_pos_h.y < 0) {
+                        layer = 1;
+                    } else if (v_pos_h.y < mid) {
+                        layer = 2;
+                    } else {
+                        layer = 3;
+                    }
+
+                    bool is_active = v_bool_arr[int(mod(floor(t) + 5, 12)) + 12 * layer];
+
+                    if (is_active) {
+                        f_colour = 1;
+                    } else {
+                        f_colour = 0;
+                    }
+                }"""
+        )
+
+        self.set_uniforms(prog)
+
+        vao, mode = self.make_vao(prog, include_normals = False)
+
+        class Renderer():
+            def __init__(self, prog):
+                self.prog = prog
+            def __call__(self, sq_bools):
+                try: prog["v_bool_arr"].value = sq_bools
+                except KeyError: pass
+                vao.render(mode, instances = 1)
+                
+        return Renderer(prog)
     
 
 
@@ -412,6 +519,10 @@ class BoardView(pgbase.canvas3d.Window):
         self.bot_flat = FlatModel(-self.side_sep / 2)
         self.circ = CircModel(self.side_sep / 2, self.inner_rad)
 
+        self.top_clickdet_render = self.top_flat.clickdet_render(self.ctx)
+        self.bot_clickdet_render = self.bot_flat.clickdet_render(self.ctx)
+        self.circ_clickdet_render = self.circ.clickdet_render(self.ctx)
+
         self.draw_model(self.top_flat)
         self.draw_model(self.bot_flat)
         self.draw_model(self.circ)
@@ -444,6 +555,8 @@ class BoardView(pgbase.canvas3d.Window):
         for model in self.piece_models:
             self.draw_model(model)
 
+        self.selected_sq = None
+
         self.update_sq_colours()
 
     def update_sq_colours(self):
@@ -453,6 +566,9 @@ class BoardView(pgbase.canvas3d.Window):
                        WormSqHole(0, 0) : (1, 0.5, 0, 1),
                        WormSqTop(2, 1) : (1, 0, 0, 1),
                        WormSqBot(2, 1) : (0, 0, 1, 1)}
+
+        if not self.selected_sq is None:
+            colour_info[self.selected_sq] = (0.5, 0, 1, 1)
 
         WHITE = (1, 1, 1, 0.7)
         BLACK = (0, 0, 0, 0.7)
@@ -466,6 +582,61 @@ class BoardView(pgbase.canvas3d.Window):
         self.circ.set_sq_colours(colours[2])
         self.clear_renderer_cache()
 
+    def draw(self):
+        super().draw()
+
+    def get_sq(self, pos):
+        #calculate which (if any) square has been clicked
+        #works by labeling each square with a positive integer using sq_to_idx and idx_to_sq
+        #we think of these integers are 8 bit binary numbers
+        #one render is one for each of the 8 bits
+        #each render, only those squares with a 1s digit at that position is rendered
+        #we check the colour of the square at the position of the mouse
+        #using the resulting 8 results, we can figure out which (if any) square was clicked
+
+        #perhaps this could be made better by only rendering the pixel where the mouse is? it is fairly fast and clean as is though so theres probably no need.
+
+        self.ctx.enable_only(moderngl.DEPTH_TEST)
+        self.set_uniforms([self.top_clickdet_render.prog, self.bot_clickdet_render.prog, self.circ_clickdet_render.prog])
+
+        def gen_bits():
+            for bitidx in range(8):
+                tex = self.ctx.texture([self.width, self.height], 1)
+                depth_tex = self.ctx.depth_texture([self.width, self.height])
+                fbo = self.ctx.framebuffer(tex, depth_tex)
+                fbo.use()
+                self.ctx.clear(0)
+
+                checks = [[False] * 64, [False] * 64, [False] * 48]
+
+                for sq in ALL_SQ:
+                    check = (sq_to_idx(sq) + 1) & (2 ** bitidx) != 0 #the +1 here is so that 0 means no square was clicked
+                    for part, i in sq.get_glsl_idxs():
+                        checks[part][i] = check
+                
+                self.top_clickdet_render(checks[0])
+                self.bot_clickdet_render(checks[1])
+                self.circ_clickdet_render(checks[2])
+
+                arr = pgbase.tools.tex_to_np(tex)
+                arr = arr.transpose([1, 0, 2]).reshape([self.width, self.height])
+                arr = np.flip(arr, 1)
+                if arr[pos[0], pos[1]] > 128:
+                    yield 1
+                else:
+                    yield 0
+
+                fbo.release()
+                tex.release()
+                depth_tex.release()
+
+        clicked_idx_plus_one = sum(c * 2 ** p for p, c in enumerate(gen_bits()))
+        if clicked_idx_plus_one != 0: #some square was clicked
+            clicked_idx = clicked_idx_plus_one - 1
+            return idx_to_sq(clicked_idx)
+        else:
+            return None
+
     def tick(self, tps):
         super().tick(tps)
 
@@ -473,7 +644,9 @@ class BoardView(pgbase.canvas3d.Window):
         super().event(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
+                self.selected_sq = self.get_sq(event.pos)
                 self.update_sq_colours()
+                
 
 
 

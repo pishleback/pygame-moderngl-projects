@@ -754,7 +754,7 @@ class Window(pgbase.core.Window):
         super().set_rect(rect)
         self.clear_renderer_cache()
 
-    def set_uniforms(self, progs, peel_tex, depth):
+    def set_uniforms(self, progs, peel_tex = None, depth = 0):
         width, height = self.rect[2:4]
         camera = self.camera
         
@@ -802,11 +802,11 @@ class Window(pgbase.core.Window):
 
         class PeelPartCache():
             def __init__(self):
-                self.all_tex = []
+                self.all_obj = []
 
             def __del__(self):
-                for tex in self.all_tex:
-                    tex.release()
+                for obj in self.all_obj:
+                    obj.release()
                 
             @functools.cache
             def __call__(self, n, width, height):
@@ -816,8 +816,9 @@ class Window(pgbase.core.Window):
                     depth_tex = ctx.depth_texture([width, height])
                     fbo = ctx.framebuffer(colour_tex, depth_tex)
                     peel_parts.append((fbo, colour_tex, depth_tex))
-                    self.all_tex.append(colour_tex)
-                    self.all_tex.append(depth_tex)
+                    self.all_obj.append(fbo)
+                    self.all_obj.append(colour_tex)
+                    self.all_obj.append(depth_tex)
                 return peel_parts
             
         get_peel_parts = PeelPartCache()
