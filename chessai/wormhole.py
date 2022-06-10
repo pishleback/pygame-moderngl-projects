@@ -5,8 +5,111 @@ import sys
 import math
 import numpy as np
 import functools
+import dataclasses
+import os
+import random
 
 
+@dataclasses.dataclass(frozen = True)
+class WormSq():
+    def get_pos_vec(self, sep):
+        raise NotImplementedError()
+    def get_glsl_idxs(self):
+        #return the index(s) of this square in the array of colours passed to glsl for rendering.
+        #yield part, idx where part in {0, 1, 2} specifies whether the square is the top, bottom or wormhole
+        #and where idx is the index in the array for that particular shader.
+        return
+        yield
+
+@dataclasses.dataclass(frozen = True)
+class WormSqTop(WormSq):
+    x : int
+    y : int
+    def __post_init__(self):
+        assert type(self.x) == type(self.y) == int
+        assert 0 <= self.x < 8
+        assert 0 <= self.y < 8
+        assert not (2 <= self.x < 6 and 2 <= self.y < 6)
+    def get_pos_vec(self, sep, in_rad):
+        off = 0.1
+        p = [self.x - 3.5, sep, self.y - 3.5]
+        if self.x in {3, 4} and self.y == 1:
+            p[2] -= off
+        elif self.x in {3, 4} and self.y == 6:
+            p[2] += off
+        elif self.y in {3, 4} and self.x == 1:
+            p[0] -= off
+        elif self.y in {3, 4} and self.x == 6:
+            p[0] += off
+        return p, [0, 1, 0]
+    def get_glsl_idxs(self):
+        yield 0, self.y + 8 * self.x
+    
+@dataclasses.dataclass(frozen = True)
+class WormSqBot(WormSq):
+    x : int
+    y : int
+    def __post_init__(self):
+        assert type(self.x) == type(self.y) == int
+        assert 0 <= self.x < 8
+        assert 0 <= self.y < 8
+        assert not (2 <= self.x < 6 and 2 <= self.y < 6)
+    def get_pos_vec(self, sep, in_rad):
+        off = 0.1
+        p = [self.x - 3.5, -sep, self.y - 3.5]
+        if self.x in {3, 4} and self.y == 1:
+            p[2] -= off
+        elif self.x in {3, 4} and self.y == 6:
+            p[2] += off
+        elif self.y in {3, 4} and self.x == 1:
+            p[0] -= off
+        elif self.y in {3, 4} and self.x == 6:
+            p[0] += off
+        return p, [0, -1, 0]
+    def get_glsl_idxs(self):
+        yield 1, self.y + 8 * self.x
+
+@dataclasses.dataclass(frozen = True)
+class WormSqHole(WormSq):
+    layer : int
+    rot : int #measured clockwise from the pentagon nearest to WormSqTop(0, 0)
+    def __post_init__(self):
+        assert type(self.layer) == type(self.rot) == int
+        assert 0 <= self.layer < 4
+        assert 0 <= self.rot < 12
+    def get_pos_vec(self, sep, in_rad):
+        outer_rad = math.sqrt(5)
+        ellipse_rad = outer_rad - in_rad
+        if self.rot % 3 == 0 and self.layer in {0, 3}:
+            v_ang = [-3.2 * math.pi / 8, None, None, 3.2 * math.pi / 8][self.layer]
+        else:
+            v_ang = [-2.7 * math.pi / 8, -0.8 * math.pi / 8, 0.8 * math.pi / 8, 2.7 * math.pi / 8][self.layer]
+        p = p = [outer_rad - ellipse_rad * math.cos(v_ang), sep * math.sin(v_ang), 0]
+        n = [-math.cos(v_ang) / ellipse_rad, math.sin(v_ang) / sep, 0]
+        h_ang = 2 * math.pi * (self.rot - 1.5) / 12
+        p = [math.cos(h_ang) * p[0] + math.sin(h_ang) * p[2], p[1], -math.sin(h_ang) * p[0] + math.cos(h_ang) * p[2]]
+        n = [math.cos(h_ang) * n[0] + math.sin(h_ang) * n[2], n[1], -math.sin(h_ang) * n[0] + math.cos(h_ang) * n[2]]
+        return p, n
+    def get_glsl_idxs(self):
+        yield 2, self.rot + 12 * self.layer
+        if self.rot % 3 == 0 and self.layer in {0, 3}:
+            x, y = [(2, 2), (5, 2), (5, 5), (2, 5)][self.rot // 3]
+            yield {3 : 0, 0 : 1}[self.layer], y + 8 * x
+
+ALL_SQ = []
+for x in range(8):
+    for y in range(8):
+        if not (2 <= x < 6 and 2 <= y < 6):
+            ALL_SQ.append(WormSqTop(x, y))
+            ALL_SQ.append(WormSqBot(x, y))
+for lay in range(4):
+    for rot in range(12):
+        ALL_SQ.append(WormSqHole(lay, rot))
+        
+
+
+
+    
 
 
 
@@ -120,7 +223,7 @@ class CircModel(pgbase.canvas3d.Model):
         ang_samples = 24 #how many horezontal strips do we want
         outer_rad = math.sqrt(5)
         ellipse_rad = outer_rad - self.inner_rad
-        gap_eps = 2
+        gap_eps = 0.5
 
         verts = {}
         i = 0
@@ -219,7 +322,7 @@ class CircModel(pgbase.canvas3d.Model):
                 const float tau = 6.28318530718;
                 
                 void main() {
-                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z >= 5) {
+                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z > 5) {
                         discard;
                     }
 
@@ -245,7 +348,7 @@ class CircModel(pgbase.canvas3d.Model):
                         layer = 3;
                     }
 
-                    vec4 v_colour = v_colour_arr[int(floor(t)) + 12 * layer];
+                    vec4 v_colour = v_colour_arr[int(mod(floor(t) + 5, 12)) + 12 * layer];
                     
                 """ + pgbase.canvas3d.FRAG_MAIN + "}"
         )
@@ -275,13 +378,13 @@ class BoardView(pgbase.canvas3d.Window):
     DARK_SQ_COLOUR = (209, 139, 71)
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs, peel_depth = 4)
-
-        side_sep = 2.2
+        super().__init__(*args, **kwargs, peel_depth = 3)
+        self.side_sep = 2.2
+        self.inner_rad = 1.5
 
         lines = pgbase.canvas3d.UnitCylinder(12, False)
         r = 0.05
-        s = side_sep / 2
+        s = self.side_sep / 2
         lines.add_line([-4, s, -4], [-4, s, 4], r, [1, 0, 0, 1])
         lines.add_line([-4, s, -4], [4, s, -4], r, [1, 0, 0, 1])
         lines.add_line([4, s, 4], [-4, s, 4], r, [1, 0, 0, 1])
@@ -294,7 +397,7 @@ class BoardView(pgbase.canvas3d.Window):
 
         spheres = pgbase.canvas3d.UnitSphere(3)
         r = 0.075
-        s = side_sep / 2
+        s = self.side_sep / 2
         spheres.add_sphere([-4, s, -4], r, [1, 0, 0, 1])
         spheres.add_sphere([4, s, -4], r, [1, 0, 0, 1])
         spheres.add_sphere([-4, s, 4], r, [1, 0, 0, 1])
@@ -305,25 +408,62 @@ class BoardView(pgbase.canvas3d.Window):
         spheres.add_sphere([4, -s, 4], r, [0, 0, 1, 1])
         self.draw_model(spheres)
 
-        self.top_flat = FlatModel(side_sep / 2)
-        self.bot_flat = FlatModel(-side_sep / 2)
-        self.circ = CircModel(side_sep / 2, 1.5)
+        self.top_flat = FlatModel(self.side_sep / 2)
+        self.bot_flat = FlatModel(-self.side_sep / 2)
+        self.circ = CircModel(self.side_sep / 2, self.inner_rad)
 
         self.draw_model(self.top_flat)
         self.draw_model(self.bot_flat)
         self.draw_model(self.circ)
+
+        self.pawn = pgbase.canvas3d.StlModel(os.path.join("chessai", "pawn.obj"))
+        self.rook = pgbase.canvas3d.StlModel(os.path.join("chessai", "rook.obj"))
+        self.knight = pgbase.canvas3d.StlModel(os.path.join("chessai", "knight.obj"))
+        self.bishop = pgbase.canvas3d.StlModel(os.path.join("chessai", "bishop.obj"))
+        self.queen = pgbase.canvas3d.StlModel(os.path.join("chessai", "queen.obj"))
+        self.king = pgbase.canvas3d.StlModel(os.path.join("chessai", "king.obj"))
+        self.prince = pgbase.canvas3d.StlModel(os.path.join("chessai", "prince.obj"))
+        self.piece_models = [self.pawn, self.rook, self.knight, self.bishop, self.queen, self.king, self.prince]
+
+        for sq in ALL_SQ:
+            if random.randint(0, 2) == 0:
+                def normalize(v):
+                    length = math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+                    return [v[i] / length for i in range(3)]
+                p, n = sq.get_pos_vec(self.side_sep / 2, self.inner_rad)
+                m = np.cross(np.random.random(3), n)
+                l = np.cross(n, m)
+                n, m, l = normalize(n), normalize(m), normalize(l)
+                T = np.array([[m[0], n[0], l[0], 0],
+                          [m[1], n[1], l[1], 0],
+                          [m[2], n[2], l[2], 0],
+                          [0, 0, 0, 1]])
+                M = pgbase.canvas3d.translation(p[0], p[1], p[2]) @ T @ pgbase.canvas3d.translation(0, 0.04, 0) @ pgbase.canvas3d.scale(0.03, 0.03, 0.03) @ pgbase.canvas3d.rotate([1, 0, 0], 0.5 * math.pi) @ pgbase.canvas3d.rotate([0, 0, 1], random.uniform(0, 2 * math.pi))
+                random.choice([self.pawn, self.rook, self.knight, self.bishop, self.king, self.prince, self.queen]).add_instance(M, random.choice([[0.75, 0, 1, 1], [0.2, 0.7, 0.2, 1]]))
+
+        for model in self.piece_models:
+            self.draw_model(model)
 
         self.update_sq_colours()
 
     def update_sq_colours(self):
         import random
 
-        WHITE = (1, 1, 1, 0.8)
-        BLACK = (0, 0, 0, 0.8)
-        
-        self.top_flat.set_sq_colours(([WHITE, BLACK] * 4 + [BLACK, WHITE] * 4) * 4)
-        self.bot_flat.set_sq_colours(([BLACK, WHITE] * 4 + [WHITE, BLACK] * 4) * 4)
-        self.circ.set_sq_colours(([WHITE, BLACK] * 6 + [BLACK, WHITE] * 6) * 2)
+        colour_info = {WormSqHole(3, 0) : (1, 0, 0, 1),
+                       WormSqHole(0, 0) : (1, 0.5, 0, 1),
+                       WormSqTop(2, 1) : (1, 0, 0, 1),
+                       WormSqBot(2, 1) : (0, 0, 1, 1)}
+
+        WHITE = (1, 1, 1, 0.7)
+        BLACK = (0, 0, 0, 0.7)
+        colours = [([WHITE, BLACK] * 4 + [BLACK, WHITE] * 4) * 4, ([BLACK, WHITE] * 4 + [WHITE, BLACK] * 4) * 4, ([BLACK, WHITE] * 6 + [WHITE, BLACK] * 6) * 2]
+        for sq, colour in colour_info.items():
+            for part, idx, in sq.get_glsl_idxs():
+                colours[part][idx] = colour
+            
+        self.top_flat.set_sq_colours(colours[0])
+        self.bot_flat.set_sq_colours(colours[1])
+        self.circ.set_sq_colours(colours[2])
         self.clear_renderer_cache()
 
     def tick(self, tps):
@@ -335,18 +475,11 @@ class BoardView(pgbase.canvas3d.Window):
             if event.button == 3:
                 self.update_sq_colours()
 
-##    def draw(self):
-##
-##        print(self.render)
-##        
-##        self.render.render()
-
-
 
 
 
 def run():
-    pgbase.core.Window.setup(size = [1000, 1000])
+    pgbase.core.Window.setup(size = [2000, 1600])
     pgbase.core.run(BoardView())
     pygame.quit()
     sys.exit()

@@ -176,6 +176,38 @@ class SimpleModel(BaseModel):
                                indices)
 
         return vao, moderngl.TRIANGLES, self.num
+
+
+
+
+
+class StlModel(SimpleModel):
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+        
+    @functools.cache
+    def triangles(self):
+        import trimesh
+        mesh = trimesh.load_mesh(self.path)
+        vertices = list(tuple([float(x) for x in v]) for v in mesh.vertices)
+        normals = list(tuple([float(x) for x in n]) for n in mesh.vertex_normals)
+        assert len(vertices) == len(normals)
+        colours = [(1, 0, 1, 1) for _ in range(len(vertices))]
+        indicies = []
+        for f in mesh.faces:
+            for i in f:
+                indicies.append(int(i))
+
+        print(len(vertices))
+
+        return vertices, normals, colours, indicies
+
+
+
+
+
+
     
 
 class UnitBox(SimpleModel):
