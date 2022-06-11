@@ -647,7 +647,34 @@ def persp(n, f, fov_y, a):
                      [0, 0, 1, 0]])
 
 
+
+
+
+
+
 class Camera():
+    def get_cam_mat(self):
+        raise NotImplementedError()
+    def get_view_mat(self):
+        raise NotImplementedError()
+    def get_proj_mat(self, width, height):
+        raise NotImplementedError()
+    
+    def convert_inwards(self, width, height, x, y):
+        raise NotImplementedError()
+    def convert_outwards(self, width, height, x, y):
+        raise NotImplementedError()
+
+    def tick(self, dt):        
+        raise NotImplementedError()
+    def mousemove(self, dx, dy):
+        raise NotImplementedError()
+
+
+
+
+
+class FlyCamera(Camera):
     def __init__(self, pos, vec, fov = 70, near = 0.01, far = 10000):
         super().__init__()
         assert len(pos) == 3
@@ -725,13 +752,88 @@ class Camera():
 
 
 
+class FlipFlyCamera(Camera):
+    def __init__(self, pos, theta, phi, fov = 70, near = 0.01, far = 10000):
+        super().__init__()
+        assert len(pos) == 3
+        self.pos = pos
+        self.theta = theta
+        self.phi = phi
+        self.fov = fov
+        self.near = near
+        self.far = far
+        self.fly_speed = 3
+
+    @property
+    def vec(self):
+        return [-math.cos(self.phi) * math.sin(self.theta), math.sin(self.phi), math.cos(self.phi) * math.cos(self.theta)]
+    @property
+    def flip(self):
+        if -math.pi / 2 < self.phi < math.pi / 2:
+            return 1
+        else:
+            return -1
+        
+    def get_cam_mat(self):
+        theta = self.theta
+        phi = self.phi
+        return translation(self.pos[0], self.pos[1], self.pos[2]) @ rotate([0, 1, 0], theta) @ rotate([1, 0, 0], phi)
+    def get_view_mat(self):
+        return np.linalg.inv(self.get_cam_mat())
+    def get_proj_mat(self, width, height):
+        return persp(self.near, self.far, self.fov, width / height)
+    
+    def convert_inwards(self, width, height, x, y):
+        side = math.sqrt(width * height)
+        return self.center[0] + width * self.scale * (2 * x / width - 1) / side, self.center[1] + height * self.scale * (2 * y / height - 1) / side
+    def convert_outwards(self, width, height, x, y):
+        side = math.sqrt(width * height)
+        return width * (side * (x - self.center[0]) / (width * self.scale) + 1) / 2, height * (side * (y - self.center[1]) / (height * self.scale) + 1) / 2
+
+    def tick(self, dt):        
+        T_vec = self.vec
+        U_vec = [0, 1, 0]
+        R_vec = normalize(np.cross(U_vec, T_vec))
+        F_vec = normalize(np.cross(R_vec, U_vec))
+
+        if pygame.key.get_pressed()[pygame.K_w]:
+            pos = self.pos
+            self.pos = [pos[i] + self.fly_speed * F_vec[i] * dt for i in [0, 1, 2]]
+        if pygame.key.get_pressed()[pygame.K_s]:
+            pos = self.pos
+            self.pos = [pos[i] - self.fly_speed * F_vec[i] * dt for i in [0, 1, 2]]
+            
+        if pygame.key.get_pressed()[pygame.K_a]:
+            pos = self.pos
+            self.pos = [pos[i] - self.fly_speed * self.flip * R_vec[i] * dt for i in [0, 1, 2]]
+        if pygame.key.get_pressed()[pygame.K_d]:
+            pos = self.pos
+            self.pos = [pos[i] + self.fly_speed * self.flip * R_vec[i] * dt for i in [0, 1, 2]]
+
+        if pygame.key.get_pressed()[pygame.K_z]:
+            pos = self.pos
+            self.pos = [pos[i] - self.fly_speed * self.flip * U_vec[i] * dt for i in [0, 1, 2]]
+        if pygame.key.get_pressed()[pygame.K_SPACE]:
+            pos = self.pos
+            self.pos = [pos[i] + self.fly_speed * self.flip * U_vec[i] * dt for i in [0, 1, 2]]
+
+    def mousemove(self, dx, dy):
+        self.theta -= 0.002 * self.flip * dx
+        self.phi -= 0.002 * dy
+
+        self.theta = self.theta % (2 * math.pi)
+        self.phi = (math.pi + self.phi) % (2 * math.pi) - math.pi
+
+
 
 
 
 class Window(pgbase.core.Window):
-    def __init__(self, *args, bg_colour = [1, 1, 1, 1], peel_depth = 5, **kwargs):
+    def __init__(self, *args, bg_colour = [1, 1, 1, 1], peel_depth = 5, camera = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.camera = Camera([0, 0, 0], [1, 0, 0])
+        if camera is None:
+            camera = FlyCamera([0, 0, 0], [1, 0, 0])
+        self.camera = camera
         self.models = []
 
         self.peel_depth = peel_depth
@@ -871,27 +973,32 @@ class Window(pgbase.core.Window):
     def tick(self, dt):
         super().tick(dt)
         self.camera.tick(dt)
-        
-    def event(self, event):
-        if event.type == pygame.MOUSEMOTION:
-            if pgbase.tools.in_rect(event.pos, self.rect):
-                if self.has_focus:
-                    if not pygame.mouse.get_pressed()[2]:
-                        self.camera.mousemove(*event.rel)
 
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                if self.has_focus:
-                    self.set_focus(False)
-                    return
-
-        super().event(event)
-
+    def focus_event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
             if pgbase.tools.in_rect(event.pos, self.rect):
                 if event.button == 1:
                     if not self.has_focus:
                         self.set_focus(True)
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                if self.has_focus:
+                    self.set_focus(False)
+                    return True
+        return False
+        
+    def event(self, event):
+        super().event(event)
+        if self.focus_event(event):
+            return
+        if event.type == pygame.MOUSEMOTION:
+            if pgbase.tools.in_rect(event.pos, self.rect):
+                if self.has_focus:
+                    if not pygame.mouse.get_pressed()[2]:
+                        self.camera.mousemove(*event.rel)
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if pgbase.tools.in_rect(event.pos, self.rect):       
                 if event.button in {4, 5}:
                     if not pygame.mouse.get_pressed()[2]:
                         mul = 0.9

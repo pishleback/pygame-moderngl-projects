@@ -402,7 +402,8 @@ class Board():
                 movement_score[info.piece.team] += 0.05 * max(5 - type(info.piece).VALUE - type(sees_piece).VALUE, 0) #good to defend/attack low value stuff with low value stuff
             else:
                 m_score = 0.05
-            movement_score[info.piece.team] += 0.02 #movement score
+            if type(info.piece) in {Knight, Bishop}:
+                movement_score[info.piece.team] += 0.02 #movement score
             
         def new_info_teleport(from_piece, to_idx):
             info = Board.MovementInfoTeleport(from_piece, to_idx)
@@ -753,7 +754,8 @@ class AiPlayer():
         self.print_done_message()
 
 
-    def tick(self):    
+    def tick(self):
+        is_new_best_move = False
         was_progress = False
         for m_id, p in list(self.processes.items()):
             if not p.is_alive():
@@ -766,6 +768,7 @@ class AiPlayer():
                     if self.alpha > self.best_move_score:
                         self.best_move_idx = self.best_move_idx_current_search
                         self.best_move_score = self.alpha
+                        is_new_best_move = True
                 del self.processes[m_id]
                 self.qdepth = max(self.qdepth, int(p.max_qdepth.value))
                 self.leaf_count += int(p.leaf_count.value)
@@ -808,10 +811,13 @@ class AiPlayer():
             self.best_move_idx = self.best_move_idx_current_search
             self.best_move_score = self.alpha
             self.start_search(self.search_depth + 1)
+            is_new_best_move = True
 
         while not self.error_queue.empty():
             e = self.error_queue.get()
             raise Exception(e)
+
+        return is_new_best_move
 
 
     def __del__(self):

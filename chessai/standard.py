@@ -182,7 +182,7 @@ class BoardView(pgbase.canvas2d.Window2D):
         super().set_rect(rect)
 
     def tick(self, tps):
-        pass
+        super().tick(tps)
         if not self.ai_player is None:
             self.ai_player.tick()
 
@@ -317,7 +317,7 @@ class BoardView(pgbase.canvas2d.Window2D):
 
     def end(self, e):
         #terminate ai subprocesses
-        if not self.ai_player:
+        if not self.ai_player is None:
             del self.ai_player
         self.ai_player = None
         

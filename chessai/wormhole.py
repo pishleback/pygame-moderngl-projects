@@ -9,6 +9,7 @@ import dataclasses
 import os
 import random
 from chessai import boardai
+import time
 
 BOARD_VERTEX_SHADER = """
 #version 430
@@ -651,11 +652,6 @@ BOARD_SIGNATURE = boardai.BoardSignature(len(ALL_SQ), flat_nbs, opp, diag_nbs, o
 
 
 
-
-
-
-
-
     
 
 
@@ -1005,12 +1001,17 @@ class CircModel(pgbase.canvas3d.Model):
 
 
 
+
+
+
+
+
 class BoardView(pgbase.canvas3d.Window):
     LIGHT_SQ_COLOUR = (255, 206, 158)
     DARK_SQ_COLOUR = (209, 139, 71)
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs, peel_depth = 3)
+        super().__init__(*args, **kwargs, peel_depth = 3, camera = pgbase.canvas3d.FlipFlyCamera([0, 0, 0], 0, 0))
         self.side_sep = 2.2
         self.inner_rad = 1.5
 
@@ -1092,11 +1093,13 @@ class BoardView(pgbase.canvas3d.Window):
         
         self.move_selected_chain = []
         self.last_move = None
-
-        self.sel_sq = None
-        self.sel_sq2 = None
+        self.last_interact_time = time.time()
 
         self.set_board(BOARD_SIGNATURE.starting_board())
+
+
+        for _ in range(20):
+            self.make_move(self.ai_player.best_move)
 
     @property
     def remaining_sel_moves(self):
@@ -1129,6 +1132,7 @@ class BoardView(pgbase.canvas3d.Window):
         else:
             self.ai_player = boardai.AiPlayer(self.board, move_score_info = sub_move_score_info)
 
+        self.last_interact_time = time.time()
         self.update_sq_colours()
         self.update_piece_models()
         
@@ -1157,23 +1161,23 @@ class BoardView(pgbase.canvas3d.Window):
           
         colour_info = {}
 
-##        if not self.sel_sq is None and not self.sel_sq2 is None:
-##            colour_info[self.sel_sq] = (1, 0, 0, 1)
-##            colour_info[self.sel_sq2] = (0, 1, 0, 1)
-##            for k in opp(sq_to_idx(self.sel_sq2), sq_to_idx(self.sel_sq)):
-##                colour_info[idx_to_sq(k)] = (1, 0.5, 0, 1)
-
         if len(self.move_select_chain) != 0:
             sq = idx_to_sq(self.move_select_chain[0])
-            colour_info[sq] = (0, 128, 255, 1)
+            colour_info[sq] = (0, 0.5, 1, 1)
+
+        if not self.ai_player is None:   
+            best_move = self.ai_player.best_move
+            for msp in best_move.select_points:
+                sq = idx_to_sq(msp.idx)
+                colour_info[sq] = (1, 0.5, 0, 1)
 
         for move, msp in self.remaining_sel_moves:
             if not msp.kind == boardai.MoveSelectionPoint.INVIS:
                 sq = idx_to_sq(msp.idx)
                 colour_info[sq] = {boardai.MoveSelectionPoint.REGULAR : (0, 1, 0, 1), boardai.MoveSelectionPoint.CAPTURE : (1, 0, 0, 1), boardai.MoveSelectionPoint.SPECIAL : (1, 0, 0.5, 1)}[msp.kind]
         
-        WHITE = (1, 1, 1, 0.7)
-        BLACK = (0, 0, 0, 0.7)
+        WHITE = (1, 1, 1, 0.6)
+        BLACK = (0, 0, 0, 0.6)
         colours = [([BLACK, WHITE] * 4 + [WHITE, BLACK] * 4) * 4, ([WHITE, BLACK] * 4 + [BLACK, WHITE] * 4) * 4, ([WHITE, BLACK] * 6 + [BLACK, WHITE] * 6) * 2]
         for sq, colour in colour_info.items():
             for part, idx, in sq.get_glsl_idxs():
@@ -1241,17 +1245,28 @@ class BoardView(pgbase.canvas3d.Window):
 
     def tick(self, tps):
         super().tick(tps)
+##        if not self.ai_player is None and time.time() - self.last_interact_time > 0.1:
+##            if not self.ai_player.best_move is None:
+##                self.make_move(self.ai_player.best_move)
+                
+        if not self.ai_player is None and time.time() - self.last_interact_time > 0.75:
+            if self.ai_player.tick():
+                self.update_sq_colours()
+
+    def focus_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if pgbase.tools.in_rect(event.pos, self.rect):
+                if event.button == 1:
+                    self.set_focus(not self.has_focus)
+        return False
+
 
     def event(self, event):
+        self.last_interact_time = time.time()
         super().event(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
                 sq = self.get_sq(event.pos)                    
-
-                self.sel_sq2 = self.sel_sq 
-                self.sel_sq = sq
-
-                print(self.sel_sq2, self.sel_sq)
                 
                 if sq is None:
                     self.move_select_chain = []
@@ -1270,8 +1285,14 @@ class BoardView(pgbase.canvas3d.Window):
                                 self.move_select_chain.append(click_idx)
                         else:
                             self.move_select_chain.append(click_idx)
-                            
                 self.update_sq_colours()
+
+    def end(self, e):
+        #terminate ai subprocesses
+        if not self.ai_player is None:
+            del self.ai_player
+        self.ai_player = None
+
                 
 
 
