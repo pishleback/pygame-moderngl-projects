@@ -158,22 +158,22 @@ class BoardSignature():
         #we must also take care to avoid infinite loops, for example round the wormhole
         #if an infinite loop occurs, we end with the starting point (so effectively a null move can be played)
         def gen_slide(idx, nbs, opp):
-            def rest_slide(start, i, j):
+            def rest_slide(block, i, j):
                 #yield all possible continuations of the slide [..., i] through j
-                if j == start:
+                if j in block:
                     #we found an loop
-                    yield [j]
+                    yield block
                 else:
                     #not found a loop, so look at all possible next steps and all continuations of the slide from that next step
                     none = True
                     for k in opp(i, j):
                         none = False
-                        for slide in rest_slide(start, j, k):
+                        for slide in rest_slide(block + [j], j, k):
                             yield [j] + slide
                     if none:
                         yield [j]
             for jdx in nbs(idx):
-                for slide in rest_slide(idx, idx, jdx):
+                for slide in rest_slide([idx], idx, jdx):
                     yield tuple(slide)
 
         self.NUM_SQUARES = num_squares

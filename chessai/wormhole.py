@@ -113,7 +113,7 @@ class WormSqBot(WormSq):
     def mirror_y(self):
         return WormSqBot(self.x, 7 - self.y)
     def mirror_z(self):
-        return WormSqBot(self.x, self.y)
+        return WormSqTop(self.x, self.y)
     def mirror_xy_tranpose(self):
         return WormSqBot(self.y, self.x)
     def rot180_x(self):
@@ -173,17 +173,371 @@ def sq_to_idx(sq):
 def idx_to_sq(idx):
     return ALL_SQ[idx]
 
+
+
+def symmetry_reduce(sq, other_sqs, reduced_opp):    
+    assert isinstance(sq, WormSq)
+    def do_mirror_z():
+        if type(sq) == WormSqBot:
+            return True
+        if type(sq) == WormSqHole:
+            if sq.layer in {0, 1}:
+                return True
+        return False
+    if do_mirror_z():
+        for sq_nb in symmetry_reduce(sq.mirror_z(), [s.mirror_z() for s in other_sqs], reduced_opp):
+            yield sq_nb.mirror_z()
+        return
+    
+    def do_mirror_y():
+        assert type(sq) != WormSqBot
+        if type(sq) == WormSqTop:
+            if sq.y >= 4:
+                return True
+        else:
+            assert type(sq) == WormSqHole
+            if sq.rot in {5, 6, 7, 8, 9, 10}:
+                return True
+        return False
+        
+    if do_mirror_y():
+        for sq_nb in symmetry_reduce(sq.mirror_y(), [s.mirror_y() for s in other_sqs], reduced_opp):
+            yield sq_nb.mirror_y()
+        return
+
+    def do_mirror_x():
+        assert type(sq) != WormSqBot
+        if type(sq) == WormSqTop:
+            assert sq.y < 4
+            if sq.x >= 4:
+                return True
+        else:
+            assert type(sq) == WormSqHole
+            assert sq.rot in {11, 0, 1, 2, 3, 4}
+            if sq.rot in {2, 3, 4}:
+                return True
+        return False
+        
+    if do_mirror_x():
+        for sq_nb in symmetry_reduce(sq.mirror_x(), [s.mirror_x() for s in other_sqs], reduced_opp):
+            yield sq_nb.mirror_x()
+        return
+
+    def do_mirror_xy_trans():
+        assert type(sq) != WormSqBot
+        if type(sq) == WormSqTop:
+            assert sq.y < 4
+            assert sq.x < 4
+            if sq.x < sq.y:
+                return True
+        else:
+            assert type(sq) == WormSqHole
+            assert sq.rot in {11, 0, 1}
+            if sq.rot == 11:
+                return True
+        return False
+        
+    if do_mirror_xy_trans():
+        for sq_nb in symmetry_reduce(sq.mirror_xy_tranpose(), [s.mirror_xy_tranpose() for s in other_sqs], reduced_opp):
+            yield sq_nb.mirror_xy_tranpose()
+        return
+
+    #we are left with a handful of squares to compute, namely
+    #WormSqTop(x=0, y=0)
+    #WormSqTop(x=1, y=0)
+    #WormSqTop(x=2, y=0)
+    #WormSqTop(x=3, y=0)
+    #WormSqTop(x=1, y=1)
+    #WormSqTop(x=2, y=1)
+    #WormSqTop(x=3, y=1)
+    #WormSqHole(layer=3, rot=0)
+    #WormSqHole(layer=3, rot=1)
+    #WormSqHole(layer=2, rot=0)
+    #WormSqHole(layer=2, rot=1)
+    #these should be handled by the reduced_opp function
+
+    yield from reduced_opp(sq, *other_sqs)
+
+
 def flat_nbs(idx):
-    return
-    yield
+    sq = idx_to_sq(idx)
+    def reduced_opp(sq):
+        if sq == WormSqTop(0, 0):
+            yield WormSqTop(1, 0)
+            yield WormSqTop(0, 1)
+        elif sq == WormSqTop(1, 0):
+            yield WormSqTop(0, 0)
+            yield WormSqTop(1, 1)
+            yield WormSqTop(2, 0)
+        elif sq == WormSqTop(2, 0):
+            yield WormSqTop(1, 0)
+            yield WormSqTop(2, 1)
+            yield WormSqTop(3, 0)
+        elif sq == WormSqTop(3, 0):
+            yield WormSqTop(2, 0)
+            yield WormSqTop(3, 1)
+            yield WormSqTop(4, 0)
+        elif sq == WormSqTop(1, 1):
+            yield WormSqTop(1, 0)
+            yield WormSqTop(0, 1)
+            yield WormSqTop(2, 1)
+            yield WormSqTop(1, 2)
+        elif sq == WormSqTop(2, 1):
+            yield WormSqTop(1, 1)
+            yield WormSqTop(2, 0)
+            yield WormSqTop(3, 1)
+            yield WormSqHole(3, 0)
+        elif sq == WormSqTop(3, 1):
+            yield WormSqTop(2, 1)
+            yield WormSqTop(3, 0)
+            yield WormSqTop(4, 1)
+            yield WormSqHole(3, 1)
+        elif sq == WormSqHole(3, 0):
+            yield WormSqTop(1, 2)
+            yield WormSqTop(2, 1)
+            yield WormSqHole(3, 1)
+            yield WormSqHole(2, 0)
+            yield WormSqHole(3, 11)
+        elif sq == WormSqHole(3, 1):
+            yield WormSqTop(3, 1)
+            yield WormSqHole(3, 0)
+            yield WormSqHole(2, 1)
+            yield WormSqHole(3, 2)
+        elif sq == WormSqHole(2, 0):
+            yield WormSqHole(3, 0)
+            yield WormSqHole(1, 0)
+            yield WormSqHole(2, 11)
+            yield WormSqHole(2, 1)
+        elif sq == WormSqHole(2, 1):
+            yield WormSqHole(3, 1)
+            yield WormSqHole(1, 1)
+            yield WormSqHole(2, 0)
+            yield WormSqHole(2, 2)
+        else:
+            assert False
+
+    for sq_nb in symmetry_reduce(sq, [], reduced_opp):
+        yield sq_to_idx(sq_nb)
 
 def diag_nbs(idx):
-    return
-    yield
+    sq = idx_to_sq(idx)
+
+    def reduced_opp(sq):
+        if sq == WormSqTop(0, 0):
+            yield WormSqTop(1, 1)
+        elif sq == WormSqTop(1, 0):
+            yield WormSqTop(0, 1)
+            yield WormSqTop(2, 1)
+        elif sq == WormSqTop(2, 0):
+            yield WormSqTop(1, 1)
+            yield WormSqTop(3, 1)
+        elif sq == WormSqTop(3, 0):
+            yield WormSqTop(2, 1)
+            yield WormSqTop(4, 1)
+        elif sq == WormSqTop(1, 1):
+            yield WormSqTop(0, 0)
+            yield WormSqTop(2, 0)
+            yield WormSqTop(0, 2)
+            yield WormSqHole(3, 0)
+        elif sq == WormSqTop(2, 1):
+            yield WormSqTop(1, 0)
+            yield WormSqTop(3, 0)
+            yield WormSqTop(1, 2)
+            yield WormSqHole(3, 1)
+        elif sq == WormSqTop(3, 1):
+            yield WormSqTop(2, 0)
+            yield WormSqTop(4, 0)
+            yield WormSqHole(3, 0)
+            yield WormSqHole(3, 2)
+        elif sq == WormSqHole(3, 0):
+            yield WormSqTop(1, 1)
+            yield WormSqTop(1, 3)
+            yield WormSqTop(3, 1)
+            yield WormSqHole(2, 11)
+            yield WormSqHole(2, 1)
+        elif sq == WormSqHole(3, 1):
+            yield WormSqTop(2, 1)
+            yield WormSqTop(4, 1)
+            yield WormSqHole(2, 0)
+            yield WormSqHole(2, 2)
+        elif sq == WormSqHole(2, 0):
+            yield WormSqHole(3, 11)
+            yield WormSqHole(3, 1)
+            yield WormSqHole(1, 11)
+            yield WormSqHole(1, 1)
+        elif sq == WormSqHole(2, 1):
+            yield WormSqHole(3, 0)
+            yield WormSqHole(3, 2)
+            yield WormSqHole(1, 0)
+            yield WormSqHole(1, 2)
+        else:
+            assert False
+
+    for sq_nb in symmetry_reduce(sq, [], reduced_opp):
+        yield sq_to_idx(sq_nb)
 
 def opp(i, j):
-    return
-    yield
+    sq_i = idx_to_sq(i)
+    sq_j = idx_to_sq(j)
+
+    def reduced_opp(sq_j, sq_i):
+        if sq_j == WormSqTop(0, 0):
+            pass
+        elif sq_j == WormSqTop(1, 0):
+            if sq_i == WormSqTop(0, 0):
+                yield WormSqTop(2, 0)
+            elif sq_i == WormSqTop(2, 0):
+                yield WormSqTop(0, 0)
+        elif sq_j == WormSqTop(2, 0):
+            if sq_i == WormSqTop(1, 0):
+                yield WormSqTop(3, 0)
+            elif sq_i == WormSqTop(3, 0):
+                yield WormSqTop(1, 0)
+        elif sq_j == WormSqTop(3, 0):
+            if sq_i == WormSqTop(2, 0):
+                yield WormSqTop(4, 0)
+            elif sq_i == WormSqTop(4, 0):
+                yield WormSqTop(2, 0)
+        elif sq_j == WormSqTop(1, 1):
+            if sq_i == WormSqTop(0, 0):
+                yield WormSqHole(3, 0)
+            elif sq_i == WormSqTop(1, 0):
+                yield WormSqTop(1, 2)
+            elif sq_i == WormSqTop(2, 0):
+                yield WormSqTop(0, 2)
+            elif sq_i == WormSqTop(2, 1):
+                yield WormSqTop(0, 1)
+            elif sq_i == WormSqHole(3, 0):
+                yield WormSqTop(0, 0)
+            elif sq_i == WormSqTop(1, 2):
+                yield WormSqTop(1, 0)
+            elif sq_i == WormSqTop(0, 2):
+                yield WormSqTop(2, 0)
+            elif sq_i == WormSqTop(0, 1):
+                yield WormSqTop(2, 1)
+        elif sq_j == WormSqTop(2, 1):
+            if sq_i == WormSqTop(1, 0):
+                yield WormSqHole(3, 1)
+            elif sq_i == WormSqTop(2, 0):
+                yield WormSqHole(3, 0)
+            elif sq_i == WormSqTop(3, 0):
+                yield WormSqTop(1, 2)
+            elif sq_i == WormSqTop(3, 1):
+                yield WormSqTop(1, 1)
+            elif sq_i == WormSqHole(3, 1):
+                yield WormSqTop(1, 0)
+            elif sq_i == WormSqHole(3, 0):
+                yield WormSqTop(2, 0)
+            elif sq_i == WormSqTop(1, 2):
+                yield WormSqTop(3, 0)
+            elif sq_i == WormSqTop(1, 1):
+                yield WormSqTop(3, 1)
+        elif sq_j == WormSqTop(3, 1):
+            if sq_i == WormSqTop(2, 0):
+                yield WormSqHole(3, 2)
+            elif sq_i == WormSqTop(3, 0):
+                yield WormSqHole(3, 1)
+            elif sq_i == WormSqTop(4, 0):
+                yield WormSqHole(3, 0)
+            elif sq_i == WormSqTop(4, 1):
+                yield WormSqTop(2, 1)
+            elif sq_i == WormSqHole(3, 2):
+                yield WormSqTop(2, 0)
+            elif sq_i == WormSqHole(3, 1):
+                yield WormSqTop(3, 0)
+            elif sq_i == WormSqHole(3, 0):
+                yield WormSqTop(4, 0)
+            elif sq_i == WormSqTop(2, 1):
+                yield WormSqTop(4, 1)
+        elif sq_j == WormSqHole(3, 0):
+            if sq_i == WormSqTop(1, 1):
+                yield WormSqHole(2, 1)
+                yield WormSqHole(2, 11)
+            elif sq_i == WormSqTop(2, 1):
+                yield WormSqHole(2, 0)
+                yield WormSqHole(3, 11)
+            elif sq_i == WormSqTop(3, 1):
+                yield WormSqHole(2, 11)
+                yield WormSqTop(1, 3)
+            elif sq_i == WormSqHole(3, 1):
+                yield WormSqHole(3, 11)
+                yield WormSqTop(1, 2)
+            elif sq_i == WormSqHole(2, 1):
+                yield WormSqTop(1, 3)
+                yield WormSqTop(1, 1)
+            elif sq_i == WormSqHole(2, 0):
+                yield WormSqTop(1, 2)
+                yield WormSqTop(2, 1)
+            elif sq_i == WormSqHole(2, 11):
+                yield WormSqTop(1, 1)
+                yield WormSqTop(3, 1)
+            elif sq_i == WormSqHole(3, 11):
+                yield WormSqTop(2, 1)
+                yield WormSqHole(3, 1)
+            elif sq_i == WormSqTop(1, 3):
+                yield WormSqTop(3, 1)
+                yield WormSqHole(2, 1)
+            elif sq_i == WormSqTop(1, 2):
+                yield WormSqHole(3, 1)
+                yield WormSqHole(2, 0)
+        elif sq_j == WormSqHole(3, 1):
+            if sq_i == WormSqTop(2, 1):
+                yield WormSqHole(2, 2)
+            elif sq_i == WormSqTop(3, 1):
+                yield WormSqHole(2, 1)
+            elif sq_i == WormSqTop(4, 1):
+                yield WormSqHole(2, 0)
+            elif sq_i == WormSqHole(3, 2):
+                yield WormSqHole(3, 0)
+            elif sq_i == WormSqHole(2, 2):
+                yield WormSqTop(2, 1)
+            elif sq_i == WormSqHole(2, 1):
+                yield WormSqTop(3, 1)
+            elif sq_i == WormSqHole(2, 0):
+                yield WormSqTop(4, 1)
+            elif sq_i == WormSqHole(3, 0):
+                yield WormSqHole(3, 2)
+        elif sq_j == WormSqHole(2, 0):
+            if sq_i == WormSqHole(3, 0):
+                yield WormSqHole(1, 0)
+            elif sq_i == WormSqHole(3, 1):
+                yield WormSqHole(1, 11)
+            elif sq_i == WormSqHole(2, 1):
+                yield WormSqHole(2, 11)
+            elif sq_i == WormSqHole(1, 1):
+                yield WormSqHole(3, 11)
+            elif sq_i == WormSqHole(1, 0):
+                yield WormSqHole(3, 0)
+            elif sq_i == WormSqHole(1, 11):
+                yield WormSqHole(3, 1)
+            elif sq_i == WormSqHole(2, 11):
+                yield WormSqHole(2, 1)
+            elif sq_i == WormSqHole(3, 11):
+                yield WormSqHole(1, 1)
+        elif sq_j == WormSqHole(2, 1):
+            if sq_i == WormSqHole(3, 1):
+                yield WormSqHole(1, 1)
+            elif sq_i == WormSqHole(3, 2):
+                yield WormSqHole(1, 0)
+            elif sq_i == WormSqHole(2, 2):
+                yield WormSqHole(2, 0)
+            elif sq_i == WormSqHole(1, 2):
+                yield WormSqHole(3, 0)
+            elif sq_i == WormSqHole(1, 1):
+                yield WormSqHole(3, 1)
+            elif sq_i == WormSqHole(1, 0):
+                yield WormSqHole(3, 2)
+            elif sq_i == WormSqHole(2, 0):
+                yield WormSqHole(2, 2)
+            elif sq_i == WormSqHole(3, 0):
+                yield WormSqHole(1, 2)
+        else:
+            assert False
+
+    for sq_k in symmetry_reduce(sq_j, [sq_i], reduced_opp):
+        yield sq_to_idx(sq_k)
+
+
 
 def pawn_moves(team, idx):
     if team == 1:
@@ -740,6 +1094,7 @@ class BoardView(pgbase.canvas3d.Window):
         self.last_move = None
 
         self.sel_sq = None
+        self.sel_sq2 = None
 
         self.set_board(BOARD_SIGNATURE.starting_board())
 
@@ -802,12 +1157,11 @@ class BoardView(pgbase.canvas3d.Window):
           
         colour_info = {}
 
-##        if not self.sel_sq is None:
-##            colour_info[self.sel_sq] = (0.5, 0.5, 0.5, 1)
-##            colour_info[self.sel_sq.mirror_x()] = (1, 0, 0, 1)
-##            colour_info[self.sel_sq.mirror_y()] = (0, 1, 0, 1)
-##            colour_info[self.sel_sq.mirror_z()] = (0, 0, 1, 1)
-##            colour_info[self.sel_sq.mirror_xy_tranpose()] = (1, 1, 0, 1)
+##        if not self.sel_sq is None and not self.sel_sq2 is None:
+##            colour_info[self.sel_sq] = (1, 0, 0, 1)
+##            colour_info[self.sel_sq2] = (0, 1, 0, 1)
+##            for k in opp(sq_to_idx(self.sel_sq2), sq_to_idx(self.sel_sq)):
+##                colour_info[idx_to_sq(k)] = (1, 0.5, 0, 1)
 
         if len(self.move_select_chain) != 0:
             sq = idx_to_sq(self.move_select_chain[0])
@@ -892,9 +1246,12 @@ class BoardView(pgbase.canvas3d.Window):
         super().event(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
-                sq = self.get_sq(event.pos)
+                sq = self.get_sq(event.pos)                    
 
+                self.sel_sq2 = self.sel_sq 
                 self.sel_sq = sq
+
+                print(self.sel_sq2, self.sel_sq)
                 
                 if sq is None:
                     self.move_select_chain = []
