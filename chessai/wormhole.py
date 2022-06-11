@@ -8,6 +8,7 @@ import functools
 import dataclasses
 import os
 import random
+from chessai import boardai
 
 BOARD_VERTEX_SHADER = """
 #version 430
@@ -39,6 +40,16 @@ class WormSq():
         raise NotImplementedError()
         return
         yield
+    def mirror_x(self):
+        raise NotImplementedError()
+    def mirror_y(self):
+        raise NotImplementedError()
+    def mirror_z(self):
+        raise NotImplementedError()
+    def mirror_xy_tranpose(self):
+        raise NotImplementedError()
+    def rot180_x(self):
+        raise NotImplementedError()
 
 @dataclasses.dataclass(frozen = True)
 class WormSqTop(WormSq):
@@ -51,18 +62,28 @@ class WormSqTop(WormSq):
         assert not (2 <= self.x < 6 and 2 <= self.y < 6)
     def get_pos_vec(self, sep, in_rad):
         off = 0.1
-        p = [self.x - 3.5, sep, self.y - 3.5]
+        p = [self.y - 3.5, sep, self.x - 3.5]
         if self.x in {3, 4} and self.y == 1:
-            p[2] -= off
-        elif self.x in {3, 4} and self.y == 6:
-            p[2] += off
-        elif self.y in {3, 4} and self.x == 1:
             p[0] -= off
-        elif self.y in {3, 4} and self.x == 6:
+        elif self.x in {3, 4} and self.y == 6:
             p[0] += off
+        elif self.y in {3, 4} and self.x == 1:
+            p[2] -= off
+        elif self.y in {3, 4} and self.x == 6:
+            p[2] += off
         return p, [0, 1, 0]
     def get_glsl_idxs(self):
         yield 0, self.y + 8 * self.x
+    def mirror_x(self):
+        return WormSqTop(7 - self.x, self.y)
+    def mirror_y(self):
+        return WormSqTop(self.x, 7 - self.y)
+    def mirror_z(self):
+        return WormSqBot(self.x, self.y)
+    def mirror_xy_tranpose(self):
+        return WormSqTop(self.y, self.x)
+    def rot180_x(self):
+        return WormSqBot(self.x, 7 - self.y)
     
 @dataclasses.dataclass(frozen = True)
 class WormSqBot(WormSq):
@@ -75,18 +96,28 @@ class WormSqBot(WormSq):
         assert not (2 <= self.x < 6 and 2 <= self.y < 6)
     def get_pos_vec(self, sep, in_rad):
         off = 0.1
-        p = [self.x - 3.5, -sep, self.y - 3.5]
+        p = [self.y - 3.5, -sep, self.x - 3.5]
         if self.x in {3, 4} and self.y == 1:
-            p[2] -= off
-        elif self.x in {3, 4} and self.y == 6:
-            p[2] += off
-        elif self.y in {3, 4} and self.x == 1:
             p[0] -= off
-        elif self.y in {3, 4} and self.x == 6:
+        elif self.x in {3, 4} and self.y == 6:
             p[0] += off
+        elif self.y in {3, 4} and self.x == 1:
+            p[2] -= off
+        elif self.y in {3, 4} and self.x == 6:
+            p[2] += off
         return p, [0, -1, 0]
     def get_glsl_idxs(self):
         yield 1, self.y + 8 * self.x
+    def mirror_x(self):
+        return WormSqBot(7 - self.x, self.y)
+    def mirror_y(self):
+        return WormSqBot(self.x, 7 - self.y)
+    def mirror_z(self):
+        return WormSqBot(self.x, self.y)
+    def mirror_xy_tranpose(self):
+        return WormSqBot(self.y, self.x)
+    def rot180_x(self):
+        return WormSqTop(self.x, 7 - self.y)
 
 @dataclasses.dataclass(frozen = True)
 class WormSqHole(WormSq):
@@ -105,7 +136,7 @@ class WormSqHole(WormSq):
             v_ang = [-2.7 * math.pi / 8, -0.8 * math.pi / 8, 0.8 * math.pi / 8, 2.7 * math.pi / 8][self.layer]
         p = p = [outer_rad - ellipse_rad * math.cos(v_ang), sep * math.sin(v_ang), 0]
         n = [-math.cos(v_ang) / ellipse_rad, math.sin(v_ang) / sep, 0]
-        h_ang = 2 * math.pi * (self.rot - 1.5) / 12
+        h_ang = 2 * math.pi * (self.rot + 4.5) / 12
         p = [math.cos(h_ang) * p[0] + math.sin(h_ang) * p[2], p[1], -math.sin(h_ang) * p[0] + math.cos(h_ang) * p[2]]
         n = [math.cos(h_ang) * n[0] + math.sin(h_ang) * n[2], n[1], -math.sin(h_ang) * n[0] + math.cos(h_ang) * n[2]]
         return p, n
@@ -114,6 +145,16 @@ class WormSqHole(WormSq):
         if self.rot % 3 == 0 and self.layer in {0, 3}:
             x, y = [(2, 2), (5, 2), (5, 5), (2, 5)][self.rot // 3]
             yield {3 : 0, 0 : 1}[self.layer], y + 8 * x
+    def mirror_x(self):
+        return WormSqHole(self.layer, (3 - self.rot) % 12)
+    def mirror_y(self):
+        return WormSqHole(self.layer, (9 - self.rot) % 12)
+    def mirror_z(self):
+        return WormSqHole(3 - self.layer, self.rot)
+    def mirror_xy_tranpose(self):
+        return WormSqHole(self.layer, (-self.rot) % 12)
+    def rot180_x(self):
+        return WormSqHole(3 - self.layer, (9 - self.rot) % 12)
 
 ALL_SQ = []
 for x in range(8):
@@ -131,6 +172,136 @@ def sq_to_idx(sq):
 
 def idx_to_sq(idx):
     return ALL_SQ[idx]
+
+def flat_nbs(idx):
+    return
+    yield
+
+def diag_nbs(idx):
+    return
+    yield
+
+def opp(i, j):
+    return
+    yield
+
+def pawn_moves(team, idx):
+    if team == 1:
+        sq = idx_to_sq(idx)
+        #need only implement team 1s pawn movements on the top half of the board (including half the wormhole)
+        #the rest are dealt with via symmetry
+        if type(sq) == WormSqTop:
+            if sq.y == 7:
+                return []
+            elif sq.y == 1:
+                if sq.x in {0, 1, 6, 7}:
+                    return [[sq_to_idx(WormSqTop(sq.x, sq.y + 1)), [sq_to_idx(WormSqTop(sq.x, sq.y + 2))]]]
+                elif sq.x in {3, 4}:
+                    return [[sq_to_idx(WormSqHole(3, sq.x - 2)), [sq_to_idx(WormSqHole(2, sq.x - 2))]]]
+                elif sq.x == 2:
+                    return [[sq_to_idx(WormSqHole(3, 0)), [sq_to_idx(WormSqHole(2, 0)), sq_to_idx(WormSqHole(3, 11))]]]
+                else:
+                    assert sq.x == 5
+                    return [[sq_to_idx(WormSqHole(3, 3)), [sq_to_idx(WormSqHole(2, 3)), sq_to_idx(WormSqHole(3, 4))]]]
+            else:
+                assert sq.y <= 6
+                if sq.x in {0, 1, 6, 7} or sq.y in {0, 6}:
+                    return [[sq_to_idx(WormSqTop(sq.x, sq.y + 1)), []]]
+                elif sq.y == 1:
+                    return [[sq_to_idx(WormSqHole(3, sq.x - 2)), []]]
+                else:
+                    return []
+        elif type(sq) == WormSqHole:
+            if sq.layer in {2, 3}:
+                if sq.rot in {0, 3} and sq.layer == 3:
+                    if sq.rot == 0:
+                        return [[sq_to_idx(WormSqHole(3, 11)), []],
+                                [sq_to_idx(WormSqHole(2, 0)), []]]
+                    elif sq.rot == 3:
+                        return [[sq_to_idx(WormSqHole(3, 4)), []],
+                                [sq_to_idx(WormSqHole(2, 3)), []]]
+                elif sq.rot in {0, 1, 2, 3}:
+                    return [[sq_to_idx(WormSqHole(sq.layer - 1, sq.rot)), []]]
+                elif sq.rot in {6, 7, 8, 9}:
+                    if sq.layer == 2:
+                        return [[sq_to_idx(WormSqHole(sq.layer + 1, sq.rot)), []]]
+                    else:
+                        return [[sq_to_idx(WormSqTop(11 - sq.rot, 6)), []]]
+                elif sq.rot in {10, 11}:
+                    return [[sq_to_idx(WormSqHole(sq.layer, sq.rot - 1)), []]]
+                elif sq.rot in {4, 5}:
+                    return [[sq_to_idx(WormSqHole(sq.layer, sq.rot + 1)), []]]
+        moves = []
+        for rot180_x_move in pawn_moves(1, sq_to_idx(idx_to_sq(idx).rot180_x())):
+            moves.append([sq_to_idx(idx_to_sq(rot180_x_move[0]).rot180_x()), [sq_to_idx(idx_to_sq(rr).rot180_x()) for rr in rot180_x_move[1]]])
+        return moves
+    elif team == -1:
+        moves = []
+        for mirror_z_move in pawn_moves(1, sq_to_idx(idx_to_sq(idx).mirror_z())):
+            moves.append([sq_to_idx(idx_to_sq(mirror_z_move[0]).mirror_z()), [sq_to_idx(idx_to_sq(mm).mirror_z()) for mm in mirror_z_move[1]]])
+        return moves 
+    else:
+        assert False
+
+def pawn_promotions(team):
+    return
+    yield
+
+
+
+STARTING_LAYOUT = set()
+for x in range(8):
+    STARTING_LAYOUT.add(boardai.Pawn(sq_to_idx(WormSqTop(x, 1)), 1, False))
+    STARTING_LAYOUT.add(boardai.Pawn(sq_to_idx(WormSqTop(x, 6)), -1, False))
+    STARTING_LAYOUT.add(boardai.Pawn(sq_to_idx(WormSqBot(x, 6)), 1, False))
+    STARTING_LAYOUT.add(boardai.Pawn(sq_to_idx(WormSqBot(x, 1)), -1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqTop(0, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqTop(1, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqTop(2, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.King(sq_to_idx(WormSqTop(3, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.Queen(sq_to_idx(WormSqTop(4, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqTop(5, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqTop(6, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqTop(7, 0)), 1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqTop(0, 7)), -1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqTop(1, 7)), -1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqTop(2, 7)), -1, False))
+STARTING_LAYOUT.add(boardai.King(sq_to_idx(WormSqTop(3, 7)), -1, False))
+STARTING_LAYOUT.add(boardai.Queen(sq_to_idx(WormSqTop(4, 7)), -1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqTop(5, 7)), -1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqTop(6, 7)), -1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqTop(7, 7)), -1, False))
+
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqBot(0, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqBot(1, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqBot(2, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Prince(sq_to_idx(WormSqBot(3, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Queen(sq_to_idx(WormSqBot(4, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqBot(5, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqBot(6, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqBot(7, 7)), 1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqBot(0, 0)), -1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqBot(1, 0)), -1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqBot(2, 0)), -1, False))
+STARTING_LAYOUT.add(boardai.Prince(sq_to_idx(WormSqBot(3, 0)), -1, False))
+STARTING_LAYOUT.add(boardai.Queen(sq_to_idx(WormSqBot(4, 0)), -1, False))
+STARTING_LAYOUT.add(boardai.Bishop(sq_to_idx(WormSqBot(5, 0)), -1, False))
+STARTING_LAYOUT.add(boardai.Knight(sq_to_idx(WormSqBot(6, 0)), -1, False))
+STARTING_LAYOUT.add(boardai.Rook(sq_to_idx(WormSqBot(7, 0)), -1, False))
+
+BOARD_SIGNATURE = boardai.BoardSignature(len(ALL_SQ), flat_nbs, opp, diag_nbs, opp, pawn_moves, pawn_promotions, STARTING_LAYOUT)
+
+
+
+
+
+
+
+
+
+
+
+
     
 
 
@@ -534,7 +705,13 @@ class BoardView(pgbase.canvas3d.Window):
         self.queen = pgbase.canvas3d.StlModel(os.path.join("chessai", "queen.obj"))
         self.king = pgbase.canvas3d.StlModel(os.path.join("chessai", "king.obj"))
         self.prince = pgbase.canvas3d.StlModel(os.path.join("chessai", "prince.obj"))
-        self.piece_models = [self.pawn, self.rook, self.knight, self.bishop, self.queen, self.king, self.prince]
+        self.piece_models = {boardai.Pawn : self.pawn,
+                             boardai.Rook : self.rook,
+                             boardai.Knight : self.knight,
+                             boardai.Bishop : self.bishop,
+                             boardai.Queen : self.queen,
+                             boardai.King : self.king,
+                             boardai.Prince : self.prince}
 
         for sq in ALL_SQ:
             if random.randint(0, 2) == 0:
@@ -552,27 +729,98 @@ class BoardView(pgbase.canvas3d.Window):
                 M = pgbase.canvas3d.translation(p[0], p[1], p[2]) @ T @ pgbase.canvas3d.translation(0, 0.04, 0) @ pgbase.canvas3d.scale(0.03, 0.03, 0.03) @ pgbase.canvas3d.rotate([1, 0, 0], 0.5 * math.pi) @ pgbase.canvas3d.rotate([0, 0, 1], random.uniform(0, 2 * math.pi))
                 random.choice([self.pawn, self.rook, self.knight, self.bishop, self.king, self.prince, self.queen]).add_instance(M, random.choice([[0.75, 0, 1, 1], [0.2, 0.7, 0.2, 1]]))
 
-        for model in self.piece_models:
+        for piece_type, model in self.piece_models.items():
             self.draw_model(model)
 
-        self.selected_sq = None
+        self.board = None
+        self.moves = []
+        self.ai_player = None
+        
+        self.move_selected_chain = []
+        self.last_move = None
+
+        self.sel_sq = None
+
+        self.set_board(BOARD_SIGNATURE.starting_board())
+
+    @property
+    def remaining_sel_moves(self):
+        if len(self.move_select_chain) == 0:
+            return [(move, move.select_points[0]) for move in self.moves]
+        else:
+            def is_rem(move):
+                if len(move.select_points) > len(self.move_select_chain):
+                    if all(move.select_points[i].idx == self.move_select_chain[i] for i in range(len(self.move_select_chain))):
+                        return True
+                return False
+            return [(move, move.select_points[len(self.move_select_chain)]) for move in self.moves if is_rem(move)]
+
+
+    def make_move(self, move, m_id = None):
+        self.set_board(move.to_board, m_id = m_id)
+        self.last_move = move
+
+    def set_board(self, board, m_id = None):
+        if not m_id is None:
+            sub_move_score_info = self.ai_player.sub_move_score_info(m_id)
+        else:
+            sub_move_score_info = None
+        print("new board", board.num, round(board.static_eval(), 2))
+        self.board = board
+        self.moves = tuple(board.get_moves())
+        self.move_select_chain = []
+        if len(self.moves) == 0:
+           self.ai_player = None
+        else:
+            self.ai_player = boardai.AiPlayer(self.board, move_score_info = sub_move_score_info)
 
         self.update_sq_colours()
+        self.update_piece_models()
+        
+    def update_piece_models(self):
+        import random
+        
+        for piece_type, model in self.piece_models.items():
+            model.clear_instances()
+        for piece in self.board.pieces:
+            def normalize(v):
+                length = math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+                return [v[i] / length for i in range(3)]
+            p, n = idx_to_sq(piece.idx).get_pos_vec(self.side_sep / 2, self.inner_rad)
+            m = np.cross(np.random.random(3), n)
+            l = np.cross(n, m)
+            n, m, l = normalize(n), normalize(m), normalize(l)
+            T = np.array([[m[0], n[0], l[0], 0],
+                          [m[1], n[1], l[1], 0],
+                          [m[2], n[2], l[2], 0],
+                          [0, 0, 0, 1]])
+            M = pgbase.canvas3d.translation(p[0], p[1], p[2]) @ T @ pgbase.canvas3d.translation(0, 0.04, 0) @ pgbase.canvas3d.scale(0.03, 0.03, 0.03) @ pgbase.canvas3d.rotate([1, 0, 0], 0.5 * math.pi) @ pgbase.canvas3d.rotate([0, 0, 1], random.uniform(0, 2 * math.pi))
+            self.piece_models[type(piece)].add_instance(M, {1 : [0.75, 0, 1, 1], -1 : [0.2, 0.7, 0.2, 1]}[piece.team])
 
     def update_sq_colours(self):
         import random
+          
+        colour_info = {}
 
-        colour_info = {WormSqHole(3, 0) : (1, 0, 0, 1),
-                       WormSqHole(0, 0) : (1, 0.5, 0, 1),
-                       WormSqTop(2, 1) : (1, 0, 0, 1),
-                       WormSqBot(2, 1) : (0, 0, 1, 1)}
+##        if not self.sel_sq is None:
+##            colour_info[self.sel_sq] = (0.5, 0.5, 0.5, 1)
+##            colour_info[self.sel_sq.mirror_x()] = (1, 0, 0, 1)
+##            colour_info[self.sel_sq.mirror_y()] = (0, 1, 0, 1)
+##            colour_info[self.sel_sq.mirror_z()] = (0, 0, 1, 1)
+##            colour_info[self.sel_sq.mirror_xy_tranpose()] = (1, 1, 0, 1)
 
-        if not self.selected_sq is None:
-            colour_info[self.selected_sq] = (0.5, 0, 1, 1)
+        if len(self.move_select_chain) != 0:
+            sq = idx_to_sq(self.move_select_chain[0])
+            colour_info[sq] = (0, 128, 255, 1)
 
+        for move, msp in self.remaining_sel_moves:
+            if not msp.kind == boardai.MoveSelectionPoint.INVIS:
+                sq = idx_to_sq(msp.idx)
+                colour_info[sq] = {boardai.MoveSelectionPoint.REGULAR : (0, 1, 0, 1), boardai.MoveSelectionPoint.CAPTURE : (1, 0, 0, 1), boardai.MoveSelectionPoint.SPECIAL : (1, 0, 0.5, 1)}[msp.kind]
+        
         WHITE = (1, 1, 1, 0.7)
         BLACK = (0, 0, 0, 0.7)
-        colours = [([WHITE, BLACK] * 4 + [BLACK, WHITE] * 4) * 4, ([BLACK, WHITE] * 4 + [WHITE, BLACK] * 4) * 4, ([BLACK, WHITE] * 6 + [WHITE, BLACK] * 6) * 2]
+        colours = [([BLACK, WHITE] * 4 + [WHITE, BLACK] * 4) * 4, ([WHITE, BLACK] * 4 + [BLACK, WHITE] * 4) * 4, ([WHITE, BLACK] * 6 + [BLACK, WHITE] * 6) * 2]
         for sq, colour in colour_info.items():
             for part, idx, in sq.get_glsl_idxs():
                 colours[part][idx] = colour
@@ -644,7 +892,28 @@ class BoardView(pgbase.canvas3d.Window):
         super().event(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
-                self.selected_sq = self.get_sq(event.pos)
+                sq = self.get_sq(event.pos)
+
+                self.sel_sq = sq
+                
+                if sq is None:
+                    self.move_select_chain = []
+                else:
+                    click_idx = sq_to_idx(sq)
+                    clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
+                    for move in clicked_moves:
+                        if [msp.idx for msp in move.select_points] == self.move_select_chain + [click_idx]:
+                            self.make_move(move)
+                            break
+                    else:
+                        if len(clicked_moves) == 0:
+                            self.move_select_chain = []
+                            clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
+                            if len(clicked_moves) != 0:
+                                self.move_select_chain.append(click_idx)
+                        else:
+                            self.move_select_chain.append(click_idx)
+                            
                 self.update_sq_colours()
                 
 

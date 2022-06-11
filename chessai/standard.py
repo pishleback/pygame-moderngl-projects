@@ -137,7 +137,7 @@ class BoardView(pgbase.canvas2d.Window2D):
         self.move_select_chain = [] #accumulate moves satisfying the series of points clicked on
         self.last_move = None
         self.last_interact_time = time.time()
-        self.draw_board = None
+        self.draw_board = None #for debugging
 
         self.set_board(BOARD_SIGNATURE.starting_board())
 

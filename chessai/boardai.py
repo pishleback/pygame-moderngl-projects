@@ -60,6 +60,7 @@ class Queen(Piece):
 @dataclasses.dataclass(frozen = True)
 class Prince(Piece):
     VALUE = 4
+    castles : tuple = dataclasses.field(default = tuple([]))
 
 @dataclasses.dataclass(frozen = True)
 class King(Piece):
