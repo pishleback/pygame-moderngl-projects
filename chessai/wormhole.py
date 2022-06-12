@@ -590,13 +590,12 @@ def pawn_moves(team, idx):
         for rot180_x_move in pawn_moves(1, sq_to_idx(idx_to_sq(idx).rot180_x())):
             moves.append([sq_to_idx(idx_to_sq(rot180_x_move[0]).rot180_x()), [sq_to_idx(idx_to_sq(rr).rot180_x()) for rr in rot180_x_move[1]]])
         return moves
-    elif team == -1:
+    else:
+        assert team == -1
         moves = []
         for mirror_z_move in pawn_moves(1, sq_to_idx(idx_to_sq(idx).mirror_z())):
             moves.append([sq_to_idx(idx_to_sq(mirror_z_move[0]).mirror_z()), [sq_to_idx(idx_to_sq(mm).mirror_z()) for mm in mirror_z_move[1]]])
         return moves 
-    else:
-        assert False
 
 def pawn_promotions(team):
     return
@@ -1081,9 +1080,9 @@ class BoardView(pgbase.canvas3d.Window):
                 l = np.cross(n, m)
                 n, m, l = normalize(n), normalize(m), normalize(l)
                 T = np.array([[m[0], n[0], l[0], 0],
-                          [m[1], n[1], l[1], 0],
-                          [m[2], n[2], l[2], 0],
-                          [0, 0, 0, 1]])
+                              [m[1], n[1], l[1], 0],
+                              [m[2], n[2], l[2], 0],
+                              [0, 0, 0, 1]])
                 M = pgbase.canvas3d.translation(p[0], p[1], p[2]) @ T @ pgbase.canvas3d.translation(0, 0.04, 0) @ pgbase.canvas3d.scale(0.03, 0.03, 0.03) @ pgbase.canvas3d.rotate([1, 0, 0], 0.5 * math.pi) @ pgbase.canvas3d.rotate([0, 0, 1], random.uniform(0, 2 * math.pi))
                 random.choice([self.pawn, self.rook, self.knight, self.bishop, self.king, self.prince, self.queen]).add_instance(M, random.choice([[0.75, 0, 1, 1], [0.2, 0.7, 0.2, 1]]))
 
