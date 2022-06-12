@@ -32,14 +32,16 @@ vec3 cam_vec = normalize(v_pos - cam_pos);
 vec3 light = normalize(vec3(1, -1, 1));
 vec3 normal = normalize(v_normal);
 float diff = abs(dot(light, normal));
-float spec = pow(abs(dot(-cam_vec, reflect(light, normal))), 10);
+float spec = pow(abs(dot(cam_vec, reflect(light, normal))), 50);
 
 float thicc = 1 / abs(dot(normal, cam_vec));
-float alpha = 1 - max(0, pow(1 - v_colour.a, thicc)); //max(0, x) used to avoid weird flickering for some reason
+float alpha = 1 - max(0, pow(1 - v_colour.a, thicc));
 
 spec *= alpha;
 
-f_colour = vec4((0.7 + 0.3 * diff) * v_colour.rgb + spec * (1 - v_colour.rgb), alpha + spec * (1 - alpha));
+f_colour = vec4(0, 0, 0, alpha);
+f_colour += vec4((0.5 + 0.5 * diff) * v_colour.rgb, 0);
+f_colour += vec4(0.75 * spec * vec3(1, 1, 0.5), 0.75 * spec * (1 - f_colour.a));
 if (do_peel) {
     if (gl_FragCoord.z <= texture2D(peel_tex, gl_FragCoord.xy / scr_size).x) {
         discard;
@@ -825,6 +827,21 @@ class FlipFlyCamera(Camera):
         self.phi = (math.pi + self.phi) % (2 * math.pi) - math.pi
 
 
+
+
+
+
+##class FarSpecLight():
+##    def __init__(self, vec, colour = (1, 1, 1)):
+##        self.colour = colour
+##        self.vec = vec
+##
+##
+##
+##class AmbientLight():
+##    def __init__(self, value):
+##        self.value = value
+        
 
 
 

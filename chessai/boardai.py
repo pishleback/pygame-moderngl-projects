@@ -261,6 +261,10 @@ class Board():
 
 
     class ActualEnPassantMove(ActualMove):
+        def __init__(self, take_pawn, *args):
+            super().__init__(*args)
+            self.take_piece = take_pawn
+            
         @property
         def is_capture(self):
             return True
@@ -501,7 +505,7 @@ class Board():
                                 pieces.remove(en_passant_info.pawn)
                                 pieces.add(to_piece)
                                 move_board = Board(self.sig, self.num + 1, pieces, -self.turn)
-                                pseudo_moves.append(Board.ActualEnPassantMove([MoveSelectionPoint(piece.idx, MoveSelectionPoint.INVIS), MoveSelectionPoint(move_idx, MoveSelectionPoint.SPECIAL)], move_board))
+                                pseudo_moves.append(Board.ActualEnPassantMove(en_passant_info.pawn, [MoveSelectionPoint(piece.idx, MoveSelectionPoint.INVIS), MoveSelectionPoint(move_idx, MoveSelectionPoint.SPECIAL)], move_board))
                             
             if type(piece) in {Rook, Queen}:
                 do_slides(piece, idx, self.sig.FLAT_SLIDE[idx])
@@ -666,7 +670,7 @@ class AiPlayer():
                 self.error_queue.put("".join(traceback.format_exception(None, e, e.__traceback__)) + f"\nError occured in subprocess pid={os.getpid()} with parent pid={os.getppid()}")
                 raise e
         
-    def __init__(self, board, num_proc = 12, move_score_info = None):
+    def __init__(self, board, num_proc = 16, move_score_info = None):
         #move_score_info is any information we already have on this move, for example from previous searches earlier in the game
         assert type(num_proc) == int and num_proc >= 1
         if move_score_info is None:

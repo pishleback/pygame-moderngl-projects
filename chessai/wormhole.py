@@ -710,6 +710,9 @@ class FlatModel(pgbase.canvas3d.Model):
                     if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z < 5) {
                         discard;
                     }
+                    //if (0.1 < mod(v_pos_h.x, 1) && mod(v_pos_h.x, 1) < 0.9 && 0.1 < mod(v_pos_h.z, 1) && mod(v_pos_h.z, 1) < 0.9 && sqrt(v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z) > sqrt(5) + 0.1) {
+                    //    discard;
+                    //}
                     vec4 v_colour = v_colour_arr[int(floor(v_pos_h.x + 4) + 8 * floor(v_pos_h.z + 4))];
                     
                 """ + pgbase.canvas3d.FRAG_MAIN + "}"
@@ -1098,7 +1101,7 @@ class BoardView(pgbase.canvas3d.Window):
         self.set_board(BOARD_SIGNATURE.starting_board())
 
 
-        for _ in range(20):
+        for _ in range(5):
             self.make_move(self.ai_player.best_move)
 
     @property
@@ -1165,16 +1168,17 @@ class BoardView(pgbase.canvas3d.Window):
             sq = idx_to_sq(self.move_select_chain[0])
             colour_info[sq] = (0, 0.5, 1, 1)
 
+        for move, msp in self.remaining_sel_moves:
+            if not msp.kind == boardai.MoveSelectionPoint.INVIS:
+                sq = idx_to_sq(msp.idx)
+                colour_info[sq] = {boardai.MoveSelectionPoint.REGULAR : (0, 1, 0, 1), boardai.MoveSelectionPoint.CAPTURE : (1, 0, 0, 1), boardai.MoveSelectionPoint.SPECIAL : (1, 0, 0.5, 1)}[msp.kind]
+
+
         if not self.ai_player is None:   
             best_move = self.ai_player.best_move
             for msp in best_move.select_points:
                 sq = idx_to_sq(msp.idx)
                 colour_info[sq] = (1, 0.5, 0, 1)
-
-        for move, msp in self.remaining_sel_moves:
-            if not msp.kind == boardai.MoveSelectionPoint.INVIS:
-                sq = idx_to_sq(msp.idx)
-                colour_info[sq] = {boardai.MoveSelectionPoint.REGULAR : (0, 1, 0, 1), boardai.MoveSelectionPoint.CAPTURE : (1, 0, 0, 1), boardai.MoveSelectionPoint.SPECIAL : (1, 0, 0.5, 1)}[msp.kind]
         
         WHITE = (1, 1, 1, 0.6)
         BLACK = (0, 0, 0, 0.6)
