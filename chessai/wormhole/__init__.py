@@ -1055,13 +1055,13 @@ class BoardView(pgbase.canvas3d.Window):
         self.draw_model(self.bot_flat)
         self.draw_model(self.circ)
 
-        self.pawn = pgbase.canvas3d.StlModel(os.path.join("chessai", "pawn.obj"))
-        self.rook = pgbase.canvas3d.StlModel(os.path.join("chessai", "rook.obj"))
-        self.knight = pgbase.canvas3d.StlModel(os.path.join("chessai", "knight.obj"))
-        self.bishop = pgbase.canvas3d.StlModel(os.path.join("chessai", "bishop.obj"))
-        self.queen = pgbase.canvas3d.StlModel(os.path.join("chessai", "queen.obj"))
-        self.king = pgbase.canvas3d.StlModel(os.path.join("chessai", "king.obj"))
-        self.prince = pgbase.canvas3d.StlModel(os.path.join("chessai", "prince.obj"))
+        self.pawn = pgbase.canvas3d.StlModel(os.path.join("chessai", "wormhole", "pawn.obj"))
+        self.rook = pgbase.canvas3d.StlModel(os.path.join("chessai", "wormhole", "rook.obj"))
+        self.knight = pgbase.canvas3d.StlModel(os.path.join("chessai", "wormhole", "knight.obj"))
+        self.bishop = pgbase.canvas3d.StlModel(os.path.join("chessai", "wormhole", "bishop.obj"))
+        self.queen = pgbase.canvas3d.StlModel(os.path.join("chessai", "wormhole", "queen.obj"))
+        self.king = pgbase.canvas3d.StlModel(os.path.join("chessai", "wormhole", "king.obj"))
+        self.prince = pgbase.canvas3d.StlModel(os.path.join("chessai", "wormhole", "prince.obj"))
         self.piece_models = {boardai.Pawn : self.pawn,
                              boardai.Rook : self.rook,
                              boardai.Knight : self.knight,
