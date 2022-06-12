@@ -107,6 +107,8 @@ class SimpleModel(BaseModel):
             uniform mat4 view_mat;
             in mat4 model_mat;
             in mat3 normal_mat;
+            uniform mat4 world_mat;
+            uniform mat3 world_normal_mat;
             
             in vec4 blanket_colour;
             in float source;
@@ -120,11 +122,12 @@ class SimpleModel(BaseModel):
 
             void main() {
                 v_colour = (1 - source) * colour + source * blanket_colour;
-                v_normal = normal_mat * normal;
-                v_pos_h = model_mat * vec4(vert, 1);
-                gl_Position = proj_mat * view_mat * model_mat * vec4(vert, 1);
+                v_normal = world_normal_mat * normal_mat * normal;
+                v_pos_h = world_mat * model_mat * vec4(vert, 1);
+                gl_Position = proj_mat * view_mat * world_mat * model_mat * vec4(vert, 1);
             }
         """, None)
+        
         self.model_mats = []
         self.colours = [] #list of blanket model colours
         self.sources = [] #list of floats for how much model and how much blanket colour to use
@@ -413,6 +416,8 @@ class TextureSphere(Model):
 
                 uniform mat4 proj_mat;
                 uniform mat4 view_mat;
+                uniform mat4 world_mat;
+                uniform mat3 world_normal_mat;
                 in vec3 center;
                 in float radius;
                 
@@ -427,7 +432,7 @@ class TextureSphere(Model):
                     v_normal = normal;
                     v_center = center;
                     v_pos_h = vec4(radius * vert + center, 1);
-                    gl_Position = proj_mat * view_mat * vec4(radius * vert + center, 1);
+                    gl_Position = proj_mat * view_mat * world_mat * vec4(radius * vert + center, 1);
                 }
                 """,
             geometry_shader = None,
@@ -851,6 +856,7 @@ class Window(pgbase.core.Window):
         if camera is None:
             camera = FlyCamera([0, 0, 0], [1, 0, 0])
         self.camera = camera
+        self.world_mat = np.eye(3) 
         self.models = []
 
         self.peel_depth = peel_depth
@@ -876,6 +882,10 @@ class Window(pgbase.core.Window):
     def set_uniforms(self, progs, peel_tex = None, depth = 0):
         width, height = self.rect[2:4]
         camera = self.camera
+
+        world_mat = np.eye(4)
+        world_mat[0:3, 0:3] = self.world_mat
+        world_normal_mat = np.linalg.inv(np.transpose(world_mat[0:3, 0:3]))
         
         proj_mat = camera.get_proj_mat(width, height)
         view_mat = camera.get_view_mat()
@@ -890,6 +900,10 @@ class Window(pgbase.core.Window):
             try: prog["proj_mat"].value = tuple(proj_mat.transpose().flatten())
             except KeyError: pass
             try: prog["view_mat"].value = tuple(view_mat.transpose().flatten())
+            except KeyError: pass
+            try: prog["world_mat"].value = tuple(world_mat.transpose().flatten())
+            except KeyError: pass
+            try: prog["world_normal_mat"].value = tuple(world_normal_mat.transpose().flatten())
             except KeyError: pass
             try: prog["cam_pos"].value = tuple(camera.pos)
             except KeyError: pass

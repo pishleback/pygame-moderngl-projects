@@ -11,21 +11,26 @@ import random
 from chessai import boardai
 import time
 
+
 BOARD_VERTEX_SHADER = """
 #version 430
 uniform mat4 proj_mat;
 uniform mat4 view_mat;
+uniform mat4 world_mat;
+uniform mat3 world_normal_mat;
 
 in vec3 vert;
 in vec3 normal;
 
 out vec3 v_normal;
 out vec4 v_pos_h;
+out vec4 v_pos_h_rel;
 
 void main() {
-    v_normal = normal;
-    v_pos_h = vec4(vert, 1);
-    gl_Position = proj_mat * view_mat * vec4(vert, 1);
+    v_normal = world_normal_mat * normal;
+    v_pos_h = world_mat * vec4(vert, 1);
+    v_pos_h_rel = vec4(vert, 1);
+    gl_Position = proj_mat * view_mat * world_mat * vec4(vert, 1);
 }
 """
 
@@ -696,6 +701,7 @@ class FlatModel(pgbase.canvas3d.Model):
             fragment_shader = """
                 #version 430
                 in vec4 v_pos_h;
+                in vec4 v_pos_h_rel;
                 in vec3 v_normal;
                 uniform sampler2D peel_tex;
                 uniform vec2 scr_size;
@@ -706,13 +712,13 @@ class FlatModel(pgbase.canvas3d.Model):
                 uniform vec4[64] v_colour_arr;
                 
                 void main() {
-                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z < 5) {
+                    if (v_pos_h_rel.x * v_pos_h_rel.x + v_pos_h_rel.z * v_pos_h_rel.z < 5) {
                         discard;
                     }
-                    //if (0.1 < mod(v_pos_h.x, 1) && mod(v_pos_h.x, 1) < 0.9 && 0.1 < mod(v_pos_h.z, 1) && mod(v_pos_h.z, 1) < 0.9 && sqrt(v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z) > sqrt(5) + 0.1) {
+                    //if (0.1 < mod(v_pos_h_rel.x, 1) && mod(v_pos_h_rel.x, 1) < 0.9 && 0.1 < mod(v_pos_h_rel.z, 1) && mod(v_pos_h_rel.z, 1) < 0.9 && sqrt(v_pos_h_rel.x * v_pos_h_rel.x + v_pos_h_rel.z * v_pos_h_rel.z) > sqrt(5) + 0.1) {
                     //    discard;
                     //}
-                    vec4 v_colour = v_colour_arr[int(floor(v_pos_h.x + 4) + 8 * floor(v_pos_h.z + 4))];
+                    vec4 v_colour = v_colour_arr[int(floor(v_pos_h_rel.x + 4) + 8 * floor(v_pos_h_rel.z + 4))];
                     
                 """ + pgbase.canvas3d.FRAG_MAIN + "}"
         )
@@ -738,6 +744,7 @@ class FlatModel(pgbase.canvas3d.Model):
             fragment_shader = """
                 #version 430
                 in vec4 v_pos_h;
+                in vec4 v_pos_h_rel;
                 in vec3 v_normal;
                 uniform sampler2D peel_tex;
                 uniform vec2 scr_size;
@@ -748,10 +755,10 @@ class FlatModel(pgbase.canvas3d.Model):
                 uniform bool[64] v_bool_arr;
                 
                 void main() {
-                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z < 5) {
+                    if (v_pos_h_rel.x * v_pos_h_rel.x + v_pos_h_rel.z * v_pos_h_rel.z < 5) {
                         discard;
                     }
-                    bool is_active = v_bool_arr[int(floor(v_pos_h.x + 4) + 8 * floor(v_pos_h.z + 4))];
+                    bool is_active = v_bool_arr[int(floor(v_pos_h_rel.x + 4) + 8 * floor(v_pos_h_rel.z + 4))];
                     if (is_active) {
                         f_colour = 1;
                     } else {
@@ -869,6 +876,7 @@ class CircModel(pgbase.canvas3d.Model):
             fragment_shader = """
                 #version 430
                 in vec4 v_pos_h;
+                in vec4 v_pos_h_rel;
                 in vec3 v_normal;
                 uniform sampler2D peel_tex;
                 uniform vec2 scr_size;
@@ -883,27 +891,27 @@ class CircModel(pgbase.canvas3d.Model):
                 const float tau = 6.28318530718;
                 
                 void main() {
-                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z > 5) {
+                    if (v_pos_h_rel.x * v_pos_h_rel.x + v_pos_h_rel.z * v_pos_h_rel.z > 5) {
                         discard;
                     }
 
                     float a;
                     float b;
                     float c;
-                    a = 4 * mod(atan(v_pos_h.x, v_pos_h.z) / tau, 1);
+                    a = 4 * mod(atan(v_pos_h_rel.x, v_pos_h_rel.z) / tau, 1);
                     b = a + 0.0397563521171529 * sin(tau * a);
                     b = 3 * b;
                     c = 3 * a;
-                    float f = (v_pos_h.y / sep);
+                    float f = (v_pos_h_rel.y / sep);
                     f = f * f;
                     float t = f * b + (1 - f) * c;
 
                     int layer;
-                    if (v_pos_h.y < -mid) {
+                    if (v_pos_h_rel.y < -mid) {
                         layer = 0;
-                    } else if (v_pos_h.y < 0) {
+                    } else if (v_pos_h_rel.y < 0) {
                         layer = 1;
-                    } else if (v_pos_h.y < mid) {
+                    } else if (v_pos_h_rel.y < mid) {
                         layer = 2;
                     } else {
                         layer = 3;
@@ -936,6 +944,7 @@ class CircModel(pgbase.canvas3d.Model):
             fragment_shader = """
                 #version 430
                 in vec4 v_pos_h;
+                in vec4 v_pos_h_rel;
                 in vec3 v_normal;
                 uniform sampler2D peel_tex;
                 uniform vec2 scr_size;
@@ -950,27 +959,27 @@ class CircModel(pgbase.canvas3d.Model):
                 const float tau = 6.28318530718;
                 
                 void main() {
-                    if (v_pos_h.x * v_pos_h.x + v_pos_h.z * v_pos_h.z > 5) {
+                    if (v_pos_h_rel.x * v_pos_h_rel.x + v_pos_h_rel.z * v_pos_h_rel.z > 5) {
                         discard;
                     }
 
                     float a;
                     float b;
                     float c;
-                    a = 4 * mod(atan(v_pos_h.x, v_pos_h.z) / tau, 1);
+                    a = 4 * mod(atan(v_pos_h_rel.x, v_pos_h_rel.z) / tau, 1);
                     b = a + 0.0397563521171529 * sin(tau * a);
                     b = 3 * b;
                     c = 3 * a;
-                    float f = (v_pos_h.y / sep);
+                    float f = (v_pos_h_rel.y / sep);
                     f = f * f;
                     float t = f * b + (1 - f) * c;
 
                     int layer;
-                    if (v_pos_h.y < -mid) {
+                    if (v_pos_h_rel.y < -mid) {
                         layer = 0;
-                    } else if (v_pos_h.y < 0) {
+                    } else if (v_pos_h_rel.y < 0) {
                         layer = 1;
-                    } else if (v_pos_h.y < mid) {
+                    } else if (v_pos_h_rel.y < mid) {
                         layer = 2;
                     } else {
                         layer = 3;
@@ -1005,6 +1014,12 @@ class CircModel(pgbase.canvas3d.Model):
 
 
 
+class Camera(pgbase.canvas3d.FlipFlyCamera):
+    def __init__(self):
+        super().__init__([0, 0, 0], 0, 0)
+        
+    
+
 
 
 
@@ -1013,7 +1028,7 @@ class BoardView(pgbase.canvas3d.Window):
     DARK_SQ_COLOUR = (209, 139, 71)
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs, peel_depth = 3, camera = pgbase.canvas3d.FlipFlyCamera([0, 0, 0], 0, 0))
+        super().__init__(*args, **kwargs, peel_depth = 3, camera = Camera())
         self.side_sep = 2.2
         self.inner_rad = 1.5
 
@@ -1100,8 +1115,9 @@ class BoardView(pgbase.canvas3d.Window):
         self.set_board(BOARD_SIGNATURE.starting_board())
 
 
-        for _ in range(5):
+        for _ in range(20):
             self.make_move(self.ai_player.best_move)
+                        
 
     @property
     def remaining_sel_moves(self):
@@ -1192,6 +1208,9 @@ class BoardView(pgbase.canvas3d.Window):
         self.clear_renderer_cache()
 
     def draw(self):
+##        world_mat = np.eye(4)
+##        world_mat[0:3, 0:3] = self.world_mat
+##        self.set_uniforms([self.top_clickdet_render.prog, self.bot_clickdet_render.prog, self.circ_clickdet_render.prog])
         super().draw()
 
     def get_sq(self, pos):
@@ -1246,8 +1265,25 @@ class BoardView(pgbase.canvas3d.Window):
         else:
             return None
 
-    def tick(self, tps):
-        super().tick(tps)
+    def tick(self, dt):
+        super().tick(dt)
+
+        #rotating the board
+        if not pygame.mouse.get_pressed()[2]:
+            f = dt * 10
+            y1 = self.world_mat[1, 0:3]
+            if not abs(y1[1]) < math.sin(math.pi / 4):
+                y2 = np.array([0, (1 if y1[1] > 0 else -1), 0])
+                y = pgbase.canvas3d.normalize(f * y2 + (1 - f) * y1)
+            else:
+                y2 = pgbase.canvas3d.normalize([y1[0], 0, y1[2]])
+                y = pgbase.canvas3d.normalize(f * y2 + (1 - f) * y1)
+            x_off = self.world_mat[0, 0:3]
+            z = np.cross(x_off, y)
+            x = np.cross(y, z)
+            self.world_mat = np.array([x, y, z])
+
+            
 ##        if not self.ai_player is None and time.time() - self.last_interact_time > 0.1:
 ##            if not self.ai_player.best_move is None:
 ##                self.make_move(self.ai_player.best_move)
@@ -1268,27 +1304,39 @@ class BoardView(pgbase.canvas3d.Window):
         self.last_interact_time = time.time()
         super().event(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 3:
-                sq = self.get_sq(event.pos)                    
-                
-                if sq is None:
-                    self.move_select_chain = []
-                else:
-                    click_idx = sq_to_idx(sq)
-                    clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
-                    for move in clicked_moves:
-                        if [msp.idx for msp in move.select_points] == self.move_select_chain + [click_idx]:
-                            self.make_move(move)
-                            break
+            if not self.has_focus:
+                if event.button == 3:
+                    sq = self.get_sq(event.pos)                    
+                    
+                    if sq is None:
+                        self.move_select_chain = []
                     else:
-                        if len(clicked_moves) == 0:
-                            self.move_select_chain = []
-                            clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
-                            if len(clicked_moves) != 0:
-                                self.move_select_chain.append(click_idx)
+                        click_idx = sq_to_idx(sq)
+                        clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
+                        for move in clicked_moves:
+                            if [msp.idx for msp in move.select_points] == self.move_select_chain + [click_idx]:
+                                self.make_move(move)
+                                break
                         else:
-                            self.move_select_chain.append(click_idx)
-                self.update_sq_colours()
+                            if len(clicked_moves) == 0:
+                                self.move_select_chain = []
+                                clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
+                                if len(clicked_moves) != 0:
+                                    self.move_select_chain.append(click_idx)
+                            else:
+                                self.move_select_chain.append(click_idx)
+                    self.update_sq_colours()
+
+        if event.type == pygame.MOUSEMOTION:
+            if pygame.mouse.get_pressed()[2]:
+                mat = np.eye(3)
+                mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, self.camera.theta)
+                mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, self.camera.phi)
+                mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, 0.01 * event.rel[0])
+                mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, 0.01 * event.rel[1])
+                mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, -self.camera.phi)
+                mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, -self.camera.theta)
+                self.world_mat = mat @ self.world_mat
 
     def end(self, e):
         #terminate ai subprocesses

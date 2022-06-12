@@ -8,6 +8,8 @@ import math
 
 
 
+#a class for splitting long vectors and large matricies into vectors of size 2, 3 or 4 so that glsl can use them
+#we (obviously) need this if we want to render higher dimensinoal stuff with glsl.
 class SplitGlsl():
     def __init__(self, num):
         assert num >= 2
@@ -128,7 +130,7 @@ class Node(pgbase.canvas3d.BaseModel):
             void main() {
                 vec4 base_pos = g_pos[0];
                 if (base_pos.w > 0) {
-                    vec3 verts[12] = vec3[12](vec3(0, 1, 0),
+                    vec3 verts[12] = vec3[12](vec3(0.0, 1.0, 0.0),
                                               vec3(0.8944271909999159, 0.4472135954999579, 0.0),
                                               vec3(0.27639320225002106, 0.4472135954999579, 0.8506508083520399),
                                               vec3(-0.7236067977499788, 0.4472135954999579, 0.5257311121191337),
@@ -136,10 +138,10 @@ class Node(pgbase.canvas3d.BaseModel):
                                               vec3(0.27639320225002084, 0.4472135954999579, -0.85065080835204),
                                               vec3(0.7236067977499789, -0.4472135954999579, 0.5257311121191336),
                                               vec3(-0.27639320225002095, -0.4472135954999579, 0.85065080835204),
-                                              vec3(-0.8944271909999159, -0.4472135954999579, 1.0953573965284052e-16),
+                                              vec3(-0.8944271909999159, -0.4472135954999579, 0.0),
                                               vec3(-0.2763932022500211, -0.4472135954999579, -0.8506508083520399),
                                               vec3(0.7236067977499788, -0.4472135954999579, -0.5257311121191338),
-                                              vec3(0, -1, 0));
+                                              vec3(0.0, -1.0, 0.0));
 
                     int idxs[60] = int[60](0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 1,
                                            11, 6, 7, 11, 7, 8, 11, 8, 9, 11, 9, 10, 11, 10, 6,
@@ -1001,7 +1003,8 @@ class Window(pgbase.canvas3d.Window):
                             self.camera.fov = min(179, max(1, self.camera.fov))
 
     
-Camera = pgbase.canvas3d.Camera
+class Camera(pgbase.canvas3d.FlyCamera):
+    pass
 
 
 ##class Window(pgbase.canvas3d.Window):
