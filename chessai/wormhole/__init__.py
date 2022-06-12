@@ -1115,8 +1115,8 @@ class BoardView(pgbase.canvas3d.Window):
         self.set_board(BOARD_SIGNATURE.starting_board())
 
 
-        for _ in range(20):
-            self.make_move(self.ai_player.best_move)
+##        for _ in range(20):
+##            self.make_move(self.ai_player.best_move)
                         
 
     @property
@@ -1271,19 +1271,26 @@ class BoardView(pgbase.canvas3d.Window):
         #rotating the board
         if not pygame.mouse.get_pressed()[2]:
             f = dt * 10
-            y1 = self.world_mat[1, 0:3]
-            if not abs(y1[1]) < math.sin(math.pi / 4):
+            y1 = self.world_mat[0:3, 1]
+            if abs(y1[1]) > math.sin(math.pi / 4):
                 y2 = np.array([0, (1 if y1[1] > 0 else -1), 0])
                 y = pgbase.canvas3d.normalize(f * y2 + (1 - f) * y1)
-            else:
+                x_off = self.world_mat[0:3, 0]
+                z = np.cross(x_off, y)
+                x = np.cross(y, z)
+            else:                
                 y2 = pgbase.canvas3d.normalize([y1[0], 0, y1[2]])
                 y = pgbase.canvas3d.normalize(f * y2 + (1 - f) * y1)
-            x_off = self.world_mat[0, 0:3]
-            z = np.cross(x_off, y)
-            x = np.cross(y, z)
-            self.world_mat = np.array([x, y, z])
+                u = np.array([0, 1, 0])
+                h = pgbase.canvas3d.normalize(np.cross(y, u))
+                x1 = self.world_mat[0:3, 0]
+                x_off = [np.dot(x1, h), np.dot(x1, u)]
+                a = 2 * math.pi * math.floor((4 * math.atan2(x_off[1], x_off[0])) / (2 * math.pi) + 0.5) / 4
+                x2 = math.cos(a) * h + math.sin(a) * u
+                x = pgbase.canvas3d.normalize(f * x2 + (1 - f) * x1)
+                z = np.cross(x, y)
+            self.world_mat = np.array([x, y, z]).transpose()
 
-            
 ##        if not self.ai_player is None and time.time() - self.last_interact_time > 0.1:
 ##            if not self.ai_player.best_move is None:
 ##                self.make_move(self.ai_player.best_move)

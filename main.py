@@ -16,6 +16,6 @@ if __name__ == "__main__":
 
 
     import chessai
-    chessai.wormhole.run()
-##    chessai.standard.run()
+##    chessai.wormhole.run()
+    chessai.standard.run()
 
