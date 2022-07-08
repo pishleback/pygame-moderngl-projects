@@ -315,10 +315,10 @@ class BoardView(pgbase.canvas2d.Window2D):
         pgbase.tools.render_tex(tex)
         tex.release() #to avoid memory issues lol
 
-    def end(self, e):
+    def end(self):
         #terminate ai subprocesses
         if not self.ai_player is None:
-            del self.ai_player
+            self.ai_player.end()
         self.ai_player = None
         
 

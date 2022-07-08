@@ -1345,7 +1345,7 @@ class BoardView(pgbase.canvas3d.Window):
                 mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, -self.camera.theta)
                 self.world_mat = mat @ self.world_mat
 
-    def end(self, e):
+    def end(self):
         #terminate ai subprocesses
         if not self.ai_player is None:
             del self.ai_player

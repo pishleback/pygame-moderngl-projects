@@ -46,7 +46,7 @@ class Window():
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 raise ExitException()
-    def end(self, e):
+    def end(self):
         self.ctx.release()
 
 
@@ -72,7 +72,9 @@ def run(window):
             window.tick(1 / 60)
             window.draw()
             pygame.display.flip()
-
     except ExitException as e:
-        window.end(e)
+        pass
+    finally:
+        window.end()
+    
 

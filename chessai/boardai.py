@@ -9,6 +9,7 @@ import os
 import traceback
 import sys
 import ctypes
+import queue
 
 
 
@@ -577,288 +578,438 @@ class Board():
         return self.board_info("checked")
     
 
-class OutOfTime(Exception):
-    pass
+##class OutOfTime(Exception):
+##    pass
+##
+##
+##
+##
+##
+##class AiPlayer():
+####    @classmethod
+####    def get_moves_sorted(cls, board, only_captures = False):
+####        return sorted([move for move in self.get_moves() if move.is_capture or not only_captures], key = lambda move : (-move.to_board.best_known_score_depth, move.to_board.best_known_score))
+##
+##    @classmethod
+##    def score_move(cls, m_id, move, path, move_scores):
+##        if tuple(path + [m_id]) in move_scores:
+##            return move_scores[tuple(path + [m_id])]
+##        else:
+##            return move.to_board.static_eval()
+##
+##    @classmethod
+##    def sort_moves(cls, moves, path, maxpath, move_scores):
+####        #we want to try the most promising moves first so that alpha-beta pruning is most effective
+####        for m_id, move in enumerate(moves):
+####            if not move in move_scores:
+####                score = move.to_board.static_eval()
+####                info = (path, maxpath, score, -1, False)
+####                move_scores[tuple(path + [m_id])] = score
+######                move_score_queue.put((path + [m_id], maxpath + [len(moves) - 1], score, -1, False))
+####        for m_id, move in enumerate(moves):
+####            if not tuple(path + [m_id]) in move_scores:
+####                move_scores[tuple(path + [m_id])] = move.to_board.static_eval()
+##        return sorted(enumerate(moves), key = lambda pair : cls.score_move(pair[0], pair[1], path, move_scores))
+##        
+##
+##
+##    @classmethod
+##    def quiesce(cls, board, path, maxpath, move_score_queue, move_scores, alpha, beta, depth, max_qdepth, leaf_count):
+##        max_qdepth.value = max(depth, max_qdepth.value)
+##        stand_pat = board.static_eval()
+##        if stand_pat >= beta:
+##            leaf_count.value += 1
+##            move_score_queue.put((path, maxpath, stand_pat, depth, True))
+##            return beta
+##        if alpha < stand_pat:
+##            alpha = stand_pat
+##        moves = board.get_moves()
+##        if len(moves) == 0:
+##            leaf_count.value += 1
+##        best_score = -math.inf
+##        for m_id, move in cls.sort_moves(moves, path, maxpath, move_scores):
+##            if move.is_capture:
+##                if stand_pat + type(move.take_piece).VALUE < alpha:
+##                    #delta prune - we can already do better than taking this piece elsewhere
+##                    move_score_queue.put((path, maxpath, best_score, depth, True))
+##                    return alpha
+##                score = -cls.quiesce(move.to_board, path + [m_id], maxpath + [len(moves) - 1], move_score_queue, move_scores, -beta, -alpha, depth + 1, max_qdepth, leaf_count)
+##                if score > best_score:
+##                    best_score = score
+##                if score >= beta:
+##                    move_score_queue.put((path, maxpath, best_score, depth, True))
+##                    return beta
+##                if best_score > alpha:
+##                   alpha = best_score
+##        move_score_queue.put((path, maxpath, best_score, depth, True))
+##        return alpha
+##
+##    @classmethod
+##    def alpha_beta(cls, board, path, maxpath, move_score_queue, move_scores, alpha, beta, depthleft, depth, max_qdepth, leaf_count):
+##        max_qdepth.value = max(depth, max_qdepth.value)
+##        if depthleft == 0:
+##            score = cls.quiesce(board, path, maxpath, move_score_queue, move_scores, alpha, beta, depth, max_qdepth, leaf_count)
+##            move_score_queue.put((path, maxpath, score, depthleft, False))
+##            return score
+##        moves = board.get_moves()
+##        best_score = -math.inf
+##        for m_id, move in cls.sort_moves(moves, path, maxpath, move_scores):
+##            score = -cls.alpha_beta(move.to_board, path + [m_id], maxpath + [len(moves) - 1], move_score_queue, move_scores, -beta, -alpha, depthleft - 1, depth + 1, max_qdepth, leaf_count)
+##            if score >= beta:
+##                move_score_queue.put((path, maxpath, best_score, depthleft, False))
+##                return beta
+##            if score > best_score:
+##                best_score = score
+##            if best_score > alpha:
+##                alpha = best_score
+##        move_score_queue.put((path, maxpath, best_score, depthleft, False))
+##        return alpha
+##
+##    @classmethod
+##    def alpha_beta_process_root(cls, ans_queue, board, path, maxpath, move_score_queue, move_scores, alpha, beta, depthleft, depth, max_qdepth, leaf_count):
+##        ans_queue.put(cls.alpha_beta(board, path, maxpath, move_score_queue, move_scores, alpha, beta, depthleft, depth, max_qdepth, leaf_count))
+##        
+##    class Process(multiprocessing.Process):
+##        def __init__(self, error_queue, ans_queue, move_score_queue, max_qdepth, leaf_count, *args, **kwargs):
+##            super().__init__(*args, **kwargs)
+##            self.error_queue = error_queue
+##            self.ans_queue = ans_queue
+##            self.move_score_queue = move_score_queue
+##            
+##            self.max_qdepth = max_qdepth
+##            self.leaf_count = leaf_count
+##
+##            self.start_time = multiprocessing.Value(ctypes.c_double, 0)
+##            self.end_time = multiprocessing.Value(ctypes.c_double, 0)
+##            
+##        def run(self, *args, **kwargs):
+##            self.start_time.value = time.time()
+##            try:
+##                super().run(*args, **kwargs)
+##            except Exception as e:
+##                self.error_queue.put("".join(traceback.format_exception(None, e, e.__traceback__)) + f"\nError occured in subprocess pid={os.getpid()} with parent pid={os.getppid()}")
+##                raise e
+##            self.end_time.value = time.time()
+##        
+##    def __init__(self, board, num_proc = 8, move_score_info = None):
+##        #move_score_info is any information we already have on this move, for example from previous searches earlier in the game
+##        assert type(num_proc) == int and num_proc >= 1
+##        if move_score_info is None:
+##            move_score_info = {}
+##        assert len(board.get_moves()) > 0
+##                
+##        self.board = board
+##        self.num_proc = num_proc #how many processes
+##        self.error_queue = multiprocessing.Queue()
+##        self.processes = {} #move -> process
+##
+##        self.move_score_info = move_score_info
+##        self.alpha = None
+##        self.qdepth = 0
+##        self.leaf_count = 0
+##        self.moves_to_try = []
+##        self.search_depth = None
+##        self.best_move_score = None
+##        self.best_move_idx = None
+##        self.best_move_idx_current_search = None
+##        self.search_start_time = None
+##        self.alpha_beta_root(0)
+##        self.start_search(1)
+##
+##
+##    @property
+##    def best_move(self):
+##        return self.board.get_moves()[self.best_move_idx]
+##    def sub_move_score_info(self, m_id):
+##        return {path[1:] : tuple([info[0][1:]] + list(info[1:])) for path, info in self.move_score_info.items() if path[0] == m_id and len(path) >= 2}
+##
+##    @property
+##    def move_scores(self):
+##        return {path : self.move_score_info[path][1] for path in self.move_score_info}
+##
+##    def start_search(self, search_depth):
+##        assert type(search_depth) == int and search_depth >= 1
+##        self.search_start_time = time.time()
+##        self.qdepth = 0
+##        self.leaf_count = 0
+##        self.alpha = -math.inf
+##                
+##        self.moves_to_try = list(reversed(type(self).sort_moves(self.board.get_moves(), [], [], self.move_scores))) #reversed becasue we pop from the right of th list
+##        self.search_depth = search_depth
+####        print(len(self.moves_to_try), end = " ")
+##
+##    def print_done_message(self):
+##        print(f"\nDone at depth {self.search_depth}+{self.qdepth}={self.search_depth + self.qdepth} boards={len(self.move_score_info)} leaves={self.leaf_count} score={round(self.board.turn * self.alpha, 2)}")
+##        
+##    def new_move_score_info(self, path, maxpath, score, depth, capture_only):
+##        assert (n := len(path)) == len(maxpath)
+##        for i in range(n):
+##            assert 0 <= path[i] <= maxpath[i]
+##        path = tuple(path)
+##        if path in self.move_score_info:
+##            old_maxpath, old_score, old_depth, old_capture_only = self.move_score_info[path]
+##            if (depth, not capture_only) > (old_depth, not old_capture_only):
+##                self.move_score_info[path] = (maxpath, score, depth, capture_only)
+##        else:
+##            self.move_score_info[path] = (maxpath, score, depth, capture_only)
+##
+##    def alpha_beta_root(self, depthleft):
+##        self.search_depth = depthleft
+##        if depthleft == 0:
+##            self.best_move_idx_current_search = random.choice(range(len(self.board.get_moves())))
+##            self.alpha = 0
+##        else:
+##            assert depthleft >= 1
+##            max_qdepth = multiprocessing.Value(ctypes.c_int64, 0)
+##            leaf_count = multiprocessing.Value(ctypes.c_int64, 0)
+##            move_score_queue = queue.Queue()
+##            board = self.board
+##            self.alpha = -math.inf
+##            best_move_id = random.choice(range(len(board.get_moves())))
+##            moves = board.get_moves()
+##            for m_id, move in enumerate(moves):
+##                score = -type(self).alpha_beta(move.to_board, [m_id], [len(moves) - 1], move_score_queue, self.move_scores, -math.inf, -self.alpha, depthleft - 1, 1, max_qdepth, leaf_count)
+##                if score > self.alpha:
+##                    self.alpha = score
+##                    best_move_id = m_id
+##            self.qdepth = int(max_qdepth.value)
+##            self.leaf_count = int(leaf_count.value)
+##            while not move_score_queue.empty():
+##                self.new_move_score_info(*move_score_queue.get())
+##            self.best_move_idx_current_search = best_move_id
+##        self.best_move_idx = self.best_move_idx_current_search
+##        self.best_move_score = self.alpha
+##        self.print_done_message()
+##
+##
+##    def tick(self):
+##        is_new_best_move = False
+##        was_progress = False
+##        for m_id, p in list(self.processes.items()):
+##            if not p.is_alive():
+####                print(f"Processes completed. From {round(p.start_time.value - self.search_start_time, 2)} to {round(p.end_time.value - self.search_start_time, 2)}s")
+##                
+##                p.terminate()
+##                p.close()
+##                score = -p.ans_queue.get()
+##                if score > self.alpha:
+##                    self.alpha = score
+##                    print(f"New alpha = {self.alpha}")
+##                    self.best_move_idx_current_search = m_id
+##                    if self.alpha > self.best_move_score:
+##                        self.best_move_idx = self.best_move_idx_current_search
+##                        self.best_move_score = self.alpha
+##                        is_new_best_move = True
+##                del self.processes[m_id]
+##                self.qdepth = max(self.qdepth, int(p.max_qdepth.value))
+##                self.leaf_count += int(p.leaf_count.value)
+##                was_progress = True
+##            while not p.move_score_queue.empty():
+##                self.new_move_score_info(*p.move_score_queue.get())
+##        if was_progress:
+##            print(len(self.moves_to_try) + len(self.processes), end = " ")
+##
+##        if len(self.moves_to_try) > 0 and len(self.processes) < self.num_proc:
+##            m_id, move = self.moves_to_try.pop()
+##            ans_queue = multiprocessing.Queue()
+##            max_qdepth = multiprocessing.Value(ctypes.c_int64, 0)
+##            leaf_count = multiprocessing.Value(ctypes.c_int64, 0)
+##            move_score_queue = multiprocessing.Queue()
+##            p = AiPlayer.Process(self.error_queue,
+##                                 ans_queue,
+##                                 move_score_queue,
+##                                 max_qdepth,
+##                                 leaf_count,
+##                                 target = self.alpha_beta_process_root,
+##                                 args = (ans_queue,
+##                                         move.to_board,
+##                                         [m_id],
+##                                         [len(self.board.get_moves()) - 1],
+##                                         move_score_queue,
+##                                         self.move_scores,
+##                                         -math.inf,
+##                                         -self.alpha,
+##                                         self.search_depth - 1,
+##                                         1,
+##                                         max_qdepth,
+##                                         leaf_count),
+##                                 daemon = True)
+##            self.processes[m_id] = p
+##            p.start()
+##
+##        if len(self.moves_to_try) == 0 and len(self.processes) == 0:
+##            self.print_done_message()
+##            self.best_move_idx = self.best_move_idx_current_search
+##            self.best_move_score = self.alpha
+##            self.start_search(self.search_depth + 1)
+##            is_new_best_move = True
+##
+##        while not self.error_queue.empty():
+##            e = self.error_queue.get()
+##            raise Exception(e)
+##
+##        return is_new_best_move
+##
+##
+##    def end(self):
+##        for move, p in self.processes.items():
+##            p.terminate()
+##
+##    def __del__(self):
+##        self.end()
+##        
+
+
+
+
+
+
+@dataclasses.dataclass
+class ScoreInfo():
+    score : float
+    all_moves : bool #True if all moves, False if quiesce
+    is_actual : bool #True if the true score, False if a bound
+
+
+
+class RootTree():
+    def __init__(self, board, path, depthleft):
+        self.board = board
+        self.path = path
+        self.depthleft = depthleft
+        
+        self.score_info = None
+        self._subs = None
+        
+    @property
+    def subs(self):
+        if self._subs is None:
+            self._subs = {}
+            for m_id, move in enumerate(self.board.get_moves()):
+                self._subs[m_id] = RootTree(move.to_board, self.path + [m_id], self.depthleft - 1)
+        return self._subs
+
+    def __str__(self):
+        return f"RootTree(score={self.score_info}, depthleft={self.depthleft})"
+
+    def follow_path(self, path):
+        if len(path) == 0:
+            return self
+        else:
+            return self.subs[path[0]].follow_path(path[1:])
+
+    def new_info(self, path, score_info):
+        self.follow_path(path).score_info = score_info
+
+    def tick(self, task_queue):
+        pass
+
+    def fill_upwards(self):
+        if not self._subs is None and self.score_info is None:
+            for p, n in self._subs.items():
+                n.fill_upwards()            
+            if all(not n.score_info is None for n in self._subs.values()):
+                self.score_info = max((n.score_info for n in self._subs.values()), key = lambda score_info : (score_info.score, score_info.is_actual))
+
+
 
 
 
 
 
 class AiPlayer():
-##    @classmethod
-##    def get_moves_sorted(cls, board, only_captures = False):
-##        return sorted([move for move in self.get_moves() if move.is_capture or not only_captures], key = lambda move : (-move.to_board.best_known_score_depth, move.to_board.best_known_score))
-
-    @classmethod
-    def score_move(cls, m_id, move, path, move_scores):
-        if tuple(path + [m_id]) in move_scores:
-            return move_scores[tuple(path + [m_id])]
-        else:
-            return move.to_board.static_eval()
-
-    @classmethod
-    def sort_moves(cls, moves, path, maxpath, move_scores):
-##        #we want to try the most promising moves first so that alpha-beta pruning is most effective
-##        for m_id, move in enumerate(moves):
-##            if not move in move_scores:
-##                score = move.to_board.static_eval()
-##                info = (path, maxpath, score, -1, False)
-##                move_scores[tuple(path + [m_id])] = score
-####                move_score_queue.put((path + [m_id], maxpath + [len(moves) - 1], score, -1, False))
-##        for m_id, move in enumerate(moves):
-##            if not tuple(path + [m_id]) in move_scores:
-##                move_scores[tuple(path + [m_id])] = move.to_board.static_eval()
-        return sorted(enumerate(moves), key = lambda pair : cls.score_move(pair[0], pair[1], path, move_scores))
-        
-
-
-    @classmethod
-    def quiesce(cls, board, path, maxpath, move_score_queue, move_scores, alpha, beta, depth, max_qdepth, leaf_count):
-        max_qdepth.value = max(depth, max_qdepth.value)
-        stand_pat = board.static_eval()
-        if stand_pat >= beta:
-            leaf_count.value += 1
-            move_score_queue.put((path, maxpath, stand_pat, depth, True))
-            return beta
-        if alpha < stand_pat:
-            alpha = stand_pat
-        moves = board.get_moves()
-        if len(moves) == 0:
-            leaf_count.value += 1
-        best_score = -math.inf
-        for m_id, move in cls.sort_moves(moves, path, maxpath, move_scores):
-            if move.is_capture:
-                if stand_pat + type(move.take_piece).VALUE < alpha:
-                    #delta prune - we can already do better than taking this piece elsewhere
-                    move_score_queue.put((path, maxpath, best_score, depth, True))
-                    return alpha
-                score = -cls.quiesce(move.to_board, path + [m_id], maxpath + [len(moves) - 1], move_score_queue, move_scores, -beta, -alpha, depth + 1, max_qdepth, leaf_count)
-                if score > best_score:
-                    best_score = score
-                if score >= beta:
-                    move_score_queue.put((path, maxpath, best_score, depth, True))
-                    return beta
-                if best_score > alpha:
-                   alpha = best_score
-        move_score_queue.put((path, maxpath, best_score, depth, True))
-        return alpha
-
-    @classmethod
-    def alpha_beta(cls, board, path, maxpath, move_score_queue, move_scores, alpha, beta, depthleft, depth, max_qdepth, leaf_count):
-        max_qdepth.value = max(depth, max_qdepth.value)
-        if depthleft == 0:
-            score = cls.quiesce(board, path, maxpath, move_score_queue, move_scores, alpha, beta, depth, max_qdepth, leaf_count)
-            move_score_queue.put((path, maxpath, score, depthleft, False))
-            return score
-        moves = board.get_moves()
-        best_score = -math.inf
-        for m_id, move in cls.sort_moves(moves, path, maxpath, move_scores):
-            score = -cls.alpha_beta(move.to_board, path + [m_id], maxpath + [len(moves) - 1], move_score_queue, move_scores, -beta, -alpha, depthleft - 1, depth + 1, max_qdepth, leaf_count)
-            if score >= beta:
-                move_score_queue.put((path, maxpath, best_score, depthleft, False))
-                return beta
-            if score > best_score:
-                best_score = score
-            if best_score > alpha:
-                alpha = best_score
-        move_score_queue.put((path, maxpath, best_score, depthleft, False))
-        return alpha
-
-    @classmethod
-    def alpha_beta_process_root(cls, ans_queue, board, path, maxpath, move_score_queue, move_scores, alpha, beta, depthleft, depth, max_qdepth, leaf_count):
-        ans_queue.put(cls.alpha_beta(board, path, maxpath, move_score_queue, move_scores, alpha, beta, depthleft, depth, max_qdepth, leaf_count))
-        
     class Process(multiprocessing.Process):
-        def __init__(self, error_queue, ans_queue, move_score_queue, max_qdepth, leaf_count, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+        @staticmethod
+        def process(print_queue, task_queue, info_queue, root_board, alpha, beta):
+            while True:
+                try:
+                    task = task_queue.get(timeout = 5) #the score node which we must try to evaluate
+                    if task.depthleft == 0:
+                        score = task.board.static_eval()
+                        info_queue.put((task.path, ScoreInfo(score, True, True)))
+                    
+                except queue.Empty:
+                    print_queue.put(f"No Task")
+        
+        def __init__(self, error_queue, print_queue, task_queue, info_queue, root_board, alpha, beta):
+            super().__init__(target = self.process, args = (print_queue, task_queue, info_queue, root_board, alpha, beta), daemon = True)
             self.error_queue = error_queue
-            self.ans_queue = ans_queue
-            self.move_score_queue = move_score_queue
-            
-            self.max_qdepth = max_qdepth
-            self.leaf_count = leaf_count
-
-            self.start_time = multiprocessing.Value(ctypes.c_double, 0)
-            self.end_time = multiprocessing.Value(ctypes.c_double, 0)
+            self.print_queue = print_queue
             
         def run(self, *args, **kwargs):
-            self.start_time.value = time.time()
             try:
                 super().run(*args, **kwargs)
             except Exception as e:
                 self.error_queue.put("".join(traceback.format_exception(None, e, e.__traceback__)) + f"\nError occured in subprocess pid={os.getpid()} with parent pid={os.getppid()}")
                 raise e
-            self.end_time.value = time.time()
+
+            
+    def __init__(self, root_board, move_score_info = None):
+        self.root_board = root_board
+        self.root_tree = RootTree(self.root_board, [], 2)
+
+        self.best_move_idx = random.choice(range(len(self.root_board.get_moves())))
+
+        self.alpha = multiprocessing.Value(ctypes.c_double, -math.inf)
+        self.beta = multiprocessing.Value(ctypes.c_double, math.inf)
+
+        print(self.alpha, self.beta)
         
-    def __init__(self, board, num_proc = 8, move_score_info = None):
-        #move_score_info is any information we already have on this move, for example from previous searches earlier in the game
-        assert type(num_proc) == int and num_proc >= 1
-        if move_score_info is None:
-            move_score_info = {}
-        assert len(board.get_moves()) > 0
-                
-        self.board = board
-        self.num_proc = num_proc #how many processes
         self.error_queue = multiprocessing.Queue()
-        self.processes = {} #move -> process
+        self.print_queue = multiprocessing.Queue()
+        self.task_queue = multiprocessing.Queue()
+        self.info_queue = multiprocessing.Queue()
+        self.processes = [AiPlayer.Process(self.error_queue, self.print_queue, self.task_queue, self.info_queue, self.root_board, self.alpha, self.beta) for _ in range(4)]
+        for p in self.processes:
+            p.start()
 
-        self.move_score_info = move_score_info
-        self.alpha = None
-        self.qdepth = 0
-        self.leaf_count = 0
-        self.moves_to_try = []
-        self.search_depth = None
-        self.best_move_score = None
-        self.best_move_idx = None
-        self.best_move_idx_current_search = None
-        self.search_start_time = None
-        self.alpha_beta_root(0)
-        self.start_search(1)
-
+        for p1, n1 in self.root_tree.subs.items():
+            for p2, n2 in n1.subs.items():
+                self.task_queue.put(self.root_tree.follow_path([p1, p2]))
+                
+        
 
     @property
     def best_move(self):
-        return self.board.get_moves()[self.best_move_idx]
-    def sub_move_score_info(self, m_id):
-        return {path[1:] : tuple([info[0][1:]] + list(info[1:])) for path, info in self.move_score_info.items() if path[0] == m_id and len(path) >= 2}
-
-    @property
-    def move_scores(self):
-        return {path : self.move_score_info[path][1] for path in self.move_score_info}
-
-    def start_search(self, search_depth):
-        assert type(search_depth) == int and search_depth >= 1
-        self.search_start_time = time.time()
-        self.qdepth = 0
-        self.leaf_count = 0
-        self.alpha = -math.inf
-                
-        self.moves_to_try = list(reversed(type(self).sort_moves(self.board.get_moves(), [], [], self.move_scores))) #reversed becasue we pop from the right of th list
-        self.search_depth = search_depth
-##        print(len(self.moves_to_try), end = " ")
-
-    def print_done_message(self):
-        print(f"\nDone at depth {self.search_depth}+{self.qdepth}={self.search_depth + self.qdepth} boards={len(self.move_score_info)} leaves={self.leaf_count} score={round(self.board.turn * self.alpha, 2)}")
-        
-    def new_move_score_info(self, path, maxpath, score, depth, capture_only):
-        assert (n := len(path)) == len(maxpath)
-        for i in range(n):
-            assert 0 <= path[i] <= maxpath[i]
-        path = tuple(path)
-        if path in self.move_score_info:
-            old_maxpath, old_score, old_depth, old_capture_only = self.move_score_info[path]
-            if (depth, not capture_only) > (old_depth, not old_capture_only):
-                self.move_score_info[path] = (maxpath, score, depth, capture_only)
-        else:
-            self.move_score_info[path] = (maxpath, score, depth, capture_only)
-
-    def alpha_beta_root(self, depthleft):
-        self.search_depth = depthleft
-        if depthleft == 0:
-            self.best_move_idx_current_search = random.choice(range(len(self.board.get_moves())))
-            self.alpha = 0
-        else:
-            assert depthleft >= 1
-            max_qdepth = multiprocessing.Value(ctypes.c_int64, 0)
-            leaf_count = multiprocessing.Value(ctypes.c_int64, 0)
-            move_score_queue = queue.Queue()
-            board = self.board
-            self.alpha = -math.inf
-            best_move_id = random.choice(range(len(board.get_moves())))
-            moves = board.get_moves()
-            for m_id, move in enumerate(moves):
-                score = -type(self).alpha_beta(move.to_board, [m_id], [len(moves) - 1], move_score_queue, self.move_scores, -math.inf, -self.alpha, depthleft - 1, 1, max_qdepth, leaf_count)
-                if score > self.alpha:
-                    self.alpha = score
-                    best_move_id = m_id
-            self.qdepth = int(max_qdepth.value)
-            self.leaf_count = int(leaf_count.value)
-            while not move_score_queue.empty():
-                self.new_move_score_info(*move_score_queue.get())
-            self.best_move_idx_current_search = best_move_id
-        self.best_move_idx = self.best_move_idx_current_search
-        self.best_move_score = self.alpha
-        self.print_done_message()
-
+        return self.root_board.get_moves()[self.best_move_idx]
 
     def tick(self):
-        is_new_best_move = False
-        was_progress = False
-        for m_id, p in list(self.processes.items()):
-            if not p.is_alive():
-##                print(f"Processes completed. From {round(p.start_time.value - self.search_start_time, 2)} to {round(p.end_time.value - self.search_start_time, 2)}s")
-                
-                p.terminate()
-                p.close()
-                score = -p.ans_queue.get()
-                if score > self.alpha:
-                    self.alpha = score
-                    print(f"New alpha = {self.alpha}")
-                    self.best_move_idx_current_search = m_id
-                    if self.alpha > self.best_move_score:
-                        self.best_move_idx = self.best_move_idx_current_search
-                        self.best_move_score = self.alpha
-                        is_new_best_move = True
-                del self.processes[m_id]
-                self.qdepth = max(self.qdepth, int(p.max_qdepth.value))
-                self.leaf_count += int(p.leaf_count.value)
-                was_progress = True
-            while not p.move_score_queue.empty():
-                self.new_move_score_info(*p.move_score_queue.get())
-        if was_progress:
-            print(len(self.moves_to_try) + len(self.processes), end = " ")
-
-        if len(self.moves_to_try) > 0 and len(self.processes) < self.num_proc:
-            m_id, move = self.moves_to_try.pop()
-##            print(m_id, self.score_move(m_id, move, [], self.move_scores))
-            ans_queue = multiprocessing.Queue()
-            max_qdepth = multiprocessing.Value(ctypes.c_int64, 0)
-            leaf_count = multiprocessing.Value(ctypes.c_int64, 0)
-            move_score_queue = multiprocessing.Queue()
-            p = AiPlayer.Process(self.error_queue,
-                                 ans_queue,
-                                 move_score_queue,
-                                 max_qdepth,
-                                 leaf_count,
-                                 target = self.alpha_beta_process_root,
-                                 args = (ans_queue,
-                                         move.to_board,
-                                         [m_id],
-                                         [len(self.board.get_moves()) - 1],
-                                         move_score_queue,
-                                         self.move_scores,
-                                         -math.inf,
-                                         -self.alpha,
-                                         self.search_depth - 1,
-                                         1,
-                                         max_qdepth,
-                                         leaf_count),
-                                 daemon = True)
-            self.processes[m_id] = p
-            p.start()
-
-        if len(self.moves_to_try) == 0 and len(self.processes) == 0:
-            self.print_done_message()
-            self.best_move_idx = self.best_move_idx_current_search
-            self.best_move_score = self.alpha
-            self.start_search(self.search_depth + 1)
-            is_new_best_move = True
-
         while not self.error_queue.empty():
-            e = self.error_queue.get()
-            raise Exception(e)
+            raise Exception(self.error_queue.get())
+        while not self.print_queue.empty():
+            print(self.print_queue.get())
+        while not self.info_queue.empty():
+            path, score_info = self.info_queue.get()
+            self.root_tree.new_info(path, score_info)
 
-        return is_new_best_move
+        self.root_tree.fill_upwards()
 
+        print()
+        print(self.root_tree, self.root_tree.score_info)
+        for p1, n1 in self.root_tree.subs.items():
+            print(p1, n1.score_info)
+
+    def end(self):
+        for p in self.processes:
+            p.terminate()
+        for p in self.processes:
+            p.join()
 
     def __del__(self):
-        for move, p in self.processes.items():
-            p.terminate()
-        
+        self.end()
 
 
 
-    
+
+
+
+
+
+
+
+
+
+
 
 
 
