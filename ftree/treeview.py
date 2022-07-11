@@ -11,6 +11,7 @@ import scipy.optimize
 import scipy.spatial
 import math
 import time
+import random
 
 
 
@@ -132,12 +133,16 @@ class TreeView(pgbase.canvas2d.Window2D):
                 #version 430
                 out vec4 f_colour;
 
+                uniform sampler2DArray tex;
+
                 void main() {
-                    f_colour = vec4(1, 0.5, 0, 1);
+                    f_colour = texture(tex, vec3(0.5, 0.5, 3));
+                    //f_colour = vec4(1, 0.5, 0, 1);
                 }
     
             """,
         )
+        self.entity_prog["tex"] = 0
         self.entity_vao = None
 
         self.edge_prog = self.ctx.program(
@@ -277,8 +282,14 @@ class TreeView(pgbase.canvas2d.Window2D):
         )
         self.edge_vao = None
 
-        
-
+        self.tex = self.ctx.texture_array([200, 200, 1024], 4, dtype = "f1")
+        for i in range(1024):
+            surf = pygame.Surface([200, 200])
+            surf.fill([255, 0, 255, 255])
+            pygame.draw.line(surf, [0, 0, 0, 255], [50, 50], [150, 50], 5)
+            pygame.draw.line(surf, [0, 0, 0, 255], [50, 50], [50, 150], 5)
+            data = pygame.image.tostring(surf, "RGBA", 1)
+            self.tex.write(data, viewport = (0, 0, i, 200, 200, 1))
 
 ##        self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
 
@@ -294,12 +305,12 @@ class TreeView(pgbase.canvas2d.Window2D):
         #variables for changing root node animation
         self.node_draw_positions = {}
         self.moving_nodes = []
-        self.moving_nodes_old_positions = np.array([0, 2])
-        self.moving_nodes_new_positions = np.array([0, 2])
+        self.moving_nodes_old_positions = np.zeros([0, 2])
+        self.moving_nodes_new_positions = np.zeros([0, 2])
         self.last_rootchange_time = time.time()
     
-        self.G = self.tree.digraph()
-        self.T = nx.DiGraph()
+        self.G = self.tree.digraph() #the full graph
+        self.T = nx.DiGraph() #a tree subgraph of G which we will draw as much of as possible
 
         root = max(self.G.nodes(), key = lambda x : len(nx.ancestors(self.G, x)))
         for _ in range(0):
@@ -433,9 +444,6 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         
         def compute_widths_related(G, node):
-##            #remove some edges so that G is a tree
-##            T = nx.bfs_tree(G.to_undirected(), root)
-##            G = G.edge_subgraph(itertools.chain(T.edges(), [(e[1], e[0]) for e in T.edges()]))
             assert nx.is_tree(G.to_undirected())
 
             #decide on an order for things
@@ -536,12 +544,6 @@ class TreeView(pgbase.canvas2d.Window2D):
 
             return center(compute_whole(G, node, compute_widths_down_part(G, node), -math.inf, -math.inf), 0)
 
-##        def compute_widths_up(G, node):
-##            return {node : 0} | center(stack([compute_widths_up(G, n) for n in G.predecessors(node)]), 0)
-##
-##        def compute_widths_down(G, node):
-##            return {node : 0} | center(stack([compute_widths_down(G, n) for n in G.successors(node)]), 0)
-
         self.node_widths = compute_widths_related(self.T, self.root)
         
         self.more_to_see_nodes = set([])
@@ -588,96 +590,6 @@ class TreeView(pgbase.canvas2d.Window2D):
                                                  (buffer_colours, "4f4", "colour")],
                                                 indices)
 
-##    def update_shapes_vao(self):
-##        G = self.G.subgraph(self.node_widths.keys())
-##
-####        node_widths = {n : w + random.uniform(-0.1, 0.1) for n, w in node_widths.items()}
-####        node_heights = {n : h + random.uniform(-0.1, 0.1) for n, h in node_heights.items()}
-##        
-####        for x in G.nodes():
-####            if type(self.tree.entity_lookup[x]) == treedata.Partnership:
-####                adj = list(G.successors(x)) + list(G.predecessors(x))
-####                w0, w1 = min(node_widths[y] for y in adj), max(node_widths[y] for y in adj)
-####                h = node_heights[x]
-####                colour = (1, 0, 0, 1)                
-####                self.shapes.add_shape(shapely.geometry.LineString([[w0, h], [w1, h]]).buffer(0.05), colour)
-####                for a in adj:
-####                    w = node_widths[a]
-####                    self.shapes.add_shape(shapely.geometry.LineString([[w, node_heights[a]], [w, h]]).buffer(0.05), colour)
-####        for x in G.nodes():
-####            if type(self.tree.entity_lookup[x]) == treedata.Person:
-####                colour = (0, 1, 1, 1)                
-####                self.shapes.add_shape(shapely.geometry.Point([node_widths[x], node_heights[x]]).buffer(0.2), colour)
-##
-##        self.shapes.clear()
-##
-##        tree_edges = set(self.T.edges())
-##
-##        for x, y in G.edges():
-##            x_pos = self.node_pos(x)
-##            y_pos = self.node_pos(y)
-##            
-##            p0 = [x_pos[0], x_pos[1]]
-##            p1 = [x_pos[0], x_pos[1] - 0.5]
-##            p2 = [x_pos[0], x_pos[1] - 1]
-##            p3 = [y_pos[0], y_pos[1] + 1]
-##            p4 = [y_pos[0], y_pos[1] + 0.5]
-##            p5 = [y_pos[0], y_pos[1]]
-##
-##            def bez(pts, f):
-##                if len(pts) == 1:
-##                    return pts[0]
-##                else:
-##                    sub_pts = []
-##                    for i in range(len(pts) - 1):
-##                        p1 = pts[i]
-##                        p2 = pts[i + 1]
-##                        sub_pts.append([p1[j] + f * (p2[j] - p1[j]) for j in [0, 1]])
-##                    return bez(sub_pts, f)
-##
-##            def gen_f():
-##                f = 0.0
-##                while f < 1:
-##                    yield f
-##                    f += 0.01 + 0.1 * (math.cos(math.pi * (2 * f - 1)) + 1) / 2
-##                yield 1.0
-##
-##            if (x, y) in tree_edges:
-##                colour = (0, 0, 0, 1)
-##            else:
-##                colour = (0.5, 0.5, 0.5, 1)
-##            
-##            self.shapes.add_shape(shapely.geometry.LineString([p0] + [bez([p1, p2, p3, p4], f) for f in gen_f()] + [p5]).buffer(0.1), colour)
-##
-##        for x in G.nodes():
-##            if x in self.more_to_see_nodes:
-##                colour = (0, 0, 0, 1)
-##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(0.5), colour)
-##            
-##        for x in G.nodes():
-##            if x == self.root:
-##                rad = 0.45
-##                colour = (1, 0, 0, 1)
-##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
-##                
-##            elif (type(self.tree.entity_lookup[x]) == treedata.Person if x in self.tree.entity_lookup else False):                
-##                rad = 0.45
-##                sex = self.tree.entity_lookup[x].get_sex()
-##                if sex == "male":
-##                    colour = (0, 0.5, 1, 1)
-##                elif sex == "female":
-##                    colour = (1, 0.5, 0.5, 1)
-##                else:
-##                    colour = (1, 0.5, 0, 1)
-##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
-##
-##                    
-##            elif (type(self.tree.entity_lookup[x]) == treedata.Partnership if x in self.tree.entity_lookup else False):
-##                rad = 0.15
-##                colour = (0, 0, 0, 1)
-##                self.shapes.add_shape(shapely.geometry.Point(self.node_pos(x)).buffer(rad), colour)
-##
-##        self.shapes.update_vao()
 
     def set_rect(self, rect):
         super().set_rect(rect)
@@ -717,10 +629,10 @@ class TreeView(pgbase.canvas2d.Window2D):
         self.ctx.screen.use()
         self.ctx.clear(1, 1, 1, 1)
         self.bg_vao.render(moderngl.TRIANGLES, instances = 1)
-##        self.shapes.vao.render(moderngl.TRIANGLES, instances = 1)
         if not self.edge_vao is None:
             self.edge_vao.render(moderngl.POINTS, instances = 1)
         if not self.entity_vao is None:
+            self.tex.use(0)
             self.entity_vao.render(moderngl.POINTS, instances = 1)
 
 
