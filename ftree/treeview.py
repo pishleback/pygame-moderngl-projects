@@ -12,6 +12,7 @@ import scipy.spatial
 import math
 import time
 import random
+import os
 
 
 
@@ -309,14 +310,10 @@ class TreeView(pgbase.canvas2d.Window2D):
         )
         self.edge_vao = None
 
-        self.tex = self.ctx.texture_array([200, 200, 1024], 4, dtype = "f1")
-        for i in range(1024):
-            surf = pygame.Surface([200, 200], flags = pygame.SRCALPHA)
-            surf.fill([random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), 128])
-            pygame.draw.line(surf, [255, 255, 255, 255], [50, 50], [150, 50], 10)
-            pygame.draw.line(surf, [0, 0, 0, 255], [50, 50], [50, 150], 10)
-            data = pygame.image.tostring(surf, "RGBA", 1)
-            self.tex.write(data, viewport = (0, 0, i, 200, 200, 1))
+        self.tex = self.ctx.texture_array([400, 600, 2048], 4, dtype = "f1")
+        self.node_surf_data = {}
+        self.nodes_waiting_for_surf_update = set()
+        self.visible_nodes = {} #node -> texture index
 
 ##        self.shapes = pgbase.canvas2d.ShapelyModel(self.ctx)
 
@@ -585,6 +582,38 @@ class TreeView(pgbase.canvas2d.Window2D):
         self.moving_nodes_old_positions = np.array([old_node_draw_positions[n] for n in self.moving_nodes])
         self.moving_nodes_new_positions = np.array([[self.node_widths[n], self.node_heights[n]] for n in self.moving_nodes])
         self.last_rootchange_time = time.time()
+        
+        self.visible_nodes = {ident : idx for idx, ident in enumerate(self.node_widths.keys() | self.moving_nodes)}
+        self.nodes_waiting_for_surf_update = set(self.visible_nodes.keys())
+
+    def get_surf_data(self, entity):
+        if not entity in self.node_surf_data:
+            if type(entity) == treedata.Person:
+                surf = pygame.Surface([self.tex.width, self.tex.height], flags = pygame.SRCALPHA)
+                
+                sex = entity.get_sex()
+                if sex is None:
+                    bg_colour = [128, 128, 128, 255]
+                elif sex == "male":
+                    bg_colour = [64, 160, 255, 255]
+                elif sex == "female":
+                    bg_colour = [255, 64, 255, 255]
+                else:
+                    bg_colour = [112, 64, 255, 255]
+                surf.fill(bg_colour)
+                pgbase.surftools.write(surf, entity.name(), [0, 0, 1, 0.2], [0, 0, 0, 255])
+                
+            else:
+                surf = pygame.Surface([self.tex.width, self.tex.height], flags = pygame.SRCALPHA)
+                surf.fill([0, 0, 0, 0])
+                pygame.draw.circle(surf, [0, 0, 0, 255], [surf.get_width() / 2, surf.get_height() / 2], surf.get_width() / 3)
+
+            data = pygame.image.tostring(surf, "RGBA", 1)
+            self.node_surf_data[entity] = data
+
+        return self.node_surf_data[entity]
+    
+
 
     def node_pos(self, node):
         pos = self.node_draw_positions[node]
@@ -597,7 +626,7 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         nodes = list(H.nodes)        
         buffer_vertices = self.ctx.buffer(np.array([self.node_pos(node) for node in nodes]).astype('f4'))
-        tex_idx = self.ctx.buffer(np.array(range(len(nodes))))
+        tex_idx = self.ctx.buffer(np.array([self.visible_nodes[node] for node in nodes]))
         buffer_indices = self.ctx.buffer(np.array(range(len(nodes))))
         self.entity_vao = self.ctx.vertex_array(self.entity_prog,
                                                 [(buffer_vertices, "2f4", "pos"),
@@ -623,7 +652,7 @@ class TreeView(pgbase.canvas2d.Window2D):
     def set_rect(self, rect):
         super().set_rect(rect)
 
-    def tick(self, tps):
+    def tick(self, dt):
         d = 0.75
         if time.time() < self.last_rootchange_time + d and len(self.moving_nodes) != 0:
             f = (time.time() - self.last_rootchange_time) / d
@@ -633,6 +662,12 @@ class TreeView(pgbase.canvas2d.Window2D):
         else:
             self.node_draw_positions = {n : [self.node_widths[n], self.node_heights[n]] for n in self.node_widths}
         self.update_vaos()
+
+        start_time = time.time()
+        while time.time() - start_time < dt and len(self.nodes_waiting_for_surf_update) != 0:
+            ident = self.nodes_waiting_for_surf_update.pop()
+            layer = self.visible_nodes[ident]
+            self.tex.write(self.get_surf_data(self.tree.entity_lookup[ident]), viewport = (0, 0, layer, self.tex.width, self.tex.height, 1))
             
         
     def event(self, event):

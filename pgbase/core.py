@@ -63,13 +63,14 @@ def run(window):
     clock = pygame.time.Clock()
     try:
         while True:
+            window.tick(1 / 60)
+            
             for event in pygame.event.get():
                 window.event(event)
                 if event.type == pygame.QUIT:
                     raise ExitException()
                 
             clock.tick(60)
-            window.tick(1 / 60)
             window.draw()
             pygame.display.flip()
     except ExitException as e:
