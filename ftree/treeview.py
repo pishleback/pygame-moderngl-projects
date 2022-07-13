@@ -201,7 +201,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                 uniform vec2 cam_center;
                 uniform mat2 cam_mat_inv;
 
-                float width = 0.1;
+                uniform float width;
 
                 vec4 pos_to_gl(vec2 pos) {
                     return vec4(cam_mat_inv * (pos - cam_center), 0, 1);
@@ -308,6 +308,7 @@ class TreeView(pgbase.canvas2d.Window2D):
     
             """,
         )
+        self.edge_prog["width"] = 0.07
         self.edge_vao = None
 
         self.tex = self.ctx.texture_array([400, 600, 2048], 4, dtype = "f1")
@@ -665,7 +666,13 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         start_time = time.time()
         while time.time() - start_time < dt and len(self.nodes_waiting_for_surf_update) != 0:
-            ident = self.nodes_waiting_for_surf_update.pop()
+            #generate some surfaces starting with the ones closest the center of the screen
+            def distsq(a, b):
+                return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+            
+            ident = min(self.nodes_waiting_for_surf_update, key = lambda ident : distsq(self.node_pos(ident), self.center)if ident in self.node_draw_positions else math.inf)
+            self.nodes_waiting_for_surf_update.remove(ident)
+            
             layer = self.visible_nodes[ident]
             self.tex.write(self.get_surf_data(self.tree.entity_lookup[ident]), viewport = (0, 0, layer, self.tex.width, self.tex.height, 1))
             
