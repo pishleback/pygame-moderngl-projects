@@ -36,6 +36,12 @@ import random
 
 
 
+
+
+
+
+
+
 class TreeView(pgbase.canvas2d.Window2D):
     def __init__(self, tree, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -87,9 +93,13 @@ class TreeView(pgbase.canvas2d.Window2D):
                 #version 430
                 in vec2 pos;
                 out vec2 g_pos;
+                
+                in uint v_tex_idx;
+                flat out uint g_tex_idx;
 
                 void main() {
                     g_pos = pos;
+                    g_tex_idx = v_tex_idx;
                 }
             """,
             geometry_shader = """
@@ -98,32 +108,46 @@ class TreeView(pgbase.canvas2d.Window2D):
                 layout (triangle_strip, max_vertices = 100) out;
                 in vec2 g_pos[];
 
+                flat in uint g_tex_idx[];
+                flat out uint f_tex_idx;
+
                 uniform vec2 cam_center;
                 uniform mat2 cam_mat_inv;
 
+                uniform float w;
+                uniform float h;
+
+                out vec2 f_tex_pos;
+
                 void main() {
+                    f_tex_idx = g_tex_idx[0];
+                    
                     vec2 pos;
 
-                    float side = 0.4;
-                    
-                    pos = g_pos[0] + vec2(-side, -side);
+                    f_tex_pos = vec2(0, 0);
+                    pos = g_pos[0] + vec2(-w, -h);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    pos = g_pos[0] + vec2(side, -side);
+                    f_tex_pos = vec2(1, 0);
+                    pos = g_pos[0] + vec2(w, -h);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    pos = g_pos[0] + vec2(side, side);
+                    f_tex_pos = vec2(1, 1);
+                    pos = g_pos[0] + vec2(w, h);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
                     EndPrimitive();
 
-                    pos = g_pos[0] + vec2(-side, -side);
+                    f_tex_pos = vec2(0, 0);
+                    pos = g_pos[0] + vec2(-w, -h);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    pos = g_pos[0] + vec2(-side, side);
+                    f_tex_pos = vec2(0, 1);
+                    pos = g_pos[0] + vec2(-w, h);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    pos = g_pos[0] + vec2(side, side);
+                    f_tex_pos = vec2(1, 1);
+                    pos = g_pos[0] + vec2(w, h);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
                     EndPrimitive();
@@ -131,18 +155,21 @@ class TreeView(pgbase.canvas2d.Window2D):
             """,
             fragment_shader = """
                 #version 430
+                in vec2 f_tex_pos;
                 out vec4 f_colour;
+                flat in uint f_tex_idx;
 
                 uniform sampler2DArray tex;
 
                 void main() {
-                    f_colour = texture(tex, vec3(0.5, 0.5, 3));
-                    //f_colour = vec4(1, 0.5, 0, 1);
+                    f_colour = texture(tex, vec3(f_tex_pos, f_tex_idx));
                 }
     
             """,
         )
         self.entity_prog["tex"] = 0
+        self.entity_prog["w"] = 0.4
+        self.entity_prog["h"] = 0.6
         self.entity_vao = None
 
         self.edge_prog = self.ctx.program(
@@ -284,10 +311,10 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         self.tex = self.ctx.texture_array([200, 200, 1024], 4, dtype = "f1")
         for i in range(1024):
-            surf = pygame.Surface([200, 200])
-            surf.fill([255, 0, 255, 255])
-            pygame.draw.line(surf, [0, 0, 0, 255], [50, 50], [150, 50], 5)
-            pygame.draw.line(surf, [0, 0, 0, 255], [50, 50], [50, 150], 5)
+            surf = pygame.Surface([200, 200], flags = pygame.SRCALPHA)
+            surf.fill([random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), 128])
+            pygame.draw.line(surf, [255, 255, 255, 255], [50, 50], [150, 50], 10)
+            pygame.draw.line(surf, [0, 0, 0, 255], [50, 50], [50, 150], 10)
             data = pygame.image.tostring(surf, "RGBA", 1)
             self.tex.write(data, viewport = (0, 0, i, 200, 200, 1))
 
@@ -304,6 +331,7 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         #variables for changing root node animation
         self.node_draw_positions = {}
+        
         self.moving_nodes = []
         self.moving_nodes_old_positions = np.zeros([0, 2])
         self.moving_nodes_new_positions = np.zeros([0, 2])
@@ -324,7 +352,6 @@ class TreeView(pgbase.canvas2d.Window2D):
 
     def update_node_positions(self):
         old_node_draw_positions = {n : p for n, p in self.node_draw_positions.items()}
-
 
         #set self.node_heights and self.T
         self.T = nx.DiGraph()
@@ -570,9 +597,11 @@ class TreeView(pgbase.canvas2d.Window2D):
 
         nodes = list(H.nodes)        
         buffer_vertices = self.ctx.buffer(np.array([self.node_pos(node) for node in nodes]).astype('f4'))
+        tex_idx = self.ctx.buffer(np.array(range(len(nodes))))
         buffer_indices = self.ctx.buffer(np.array(range(len(nodes))))
         self.entity_vao = self.ctx.vertex_array(self.entity_prog,
-                                                [(buffer_vertices, "2f4", "pos")],
+                                                [(buffer_vertices, "2f4", "pos"),
+                                                 (tex_idx, "u4", "v_tex_idx")],
                                                 buffer_indices)
 
         colour_tree_edge = [0, 0, 0, 1]
@@ -585,10 +614,10 @@ class TreeView(pgbase.canvas2d.Window2D):
         buffer_colours = self.ctx.buffer(np.array([(colour_tree_edge if edge in tree_edges else colour_loop_edge) for edge in edges]).astype('f4'))
         indices = self.ctx.buffer(np.array(range(len(edges))))
         self.edge_vao = self.ctx.vertex_array(self.edge_prog,
-                                                [(buffer_top_vertices, "2f4", "top_pos"),
-                                                 (buffer_bot_vertices, "2f4", "bot_pos"),
-                                                 (buffer_colours, "4f4", "colour")],
-                                                indices)
+                                              [(buffer_top_vertices, "2f4", "top_pos"),
+                                               (buffer_bot_vertices, "2f4", "bot_pos"),
+                                               (buffer_colours, "4f4", "colour")],
+                                              indices)
 
 
     def set_rect(self, rect):
@@ -628,6 +657,9 @@ class TreeView(pgbase.canvas2d.Window2D):
         
         self.ctx.screen.use()
         self.ctx.clear(1, 1, 1, 1)
+
+        self.ctx.enable_only(moderngl.BLEND)
+        
         self.bg_vao.render(moderngl.TRIANGLES, instances = 1)
         if not self.edge_vao is None:
             self.edge_vao.render(moderngl.POINTS, instances = 1)
