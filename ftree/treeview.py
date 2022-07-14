@@ -94,6 +94,9 @@ class TreeView(pgbase.canvas2d.Window2D):
                 #version 430
                 in vec2 pos;
                 out vec2 g_pos;
+
+                in float border;
+                out float g_border;
                 
                 in uint v_tex_idx;
                 flat out uint g_tex_idx;
@@ -101,6 +104,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                 void main() {
                     g_pos = pos;
                     g_tex_idx = v_tex_idx;
+                    g_border = border;
                 }
             """,
             geometry_shader = """
@@ -112,6 +116,9 @@ class TreeView(pgbase.canvas2d.Window2D):
                 flat in uint g_tex_idx[];
                 flat out uint f_tex_idx;
 
+                in float g_border[];
+                out float f_border;
+
                 uniform vec2 cam_center;
                 uniform mat2 cam_mat_inv;
 
@@ -122,33 +129,37 @@ class TreeView(pgbase.canvas2d.Window2D):
 
                 void main() {
                     f_tex_idx = g_tex_idx[0];
+                    f_border = g_border[0];
                     
                     vec2 pos;
 
-                    f_tex_pos = vec2(0, 0);
-                    pos = g_pos[0] + vec2(-w, -h);
+                    float bw = w + 2 * g_border[0];
+                    float bh = h + 2 * g_border[0];
+
+                    f_tex_pos = vec2(-g_border[0] / w, -g_border[0] / h);
+                    pos = g_pos[0] + vec2(-bw, -bh);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    f_tex_pos = vec2(1, 0);
-                    pos = g_pos[0] + vec2(w, -h);
+                    f_tex_pos = vec2(1 + g_border[0] / w, -g_border[0] / h);
+                    pos = g_pos[0] + vec2(bw, -bh);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    f_tex_pos = vec2(1, 1);
-                    pos = g_pos[0] + vec2(w, h);
+                    f_tex_pos = vec2(1 + g_border[0] / w, 1 + g_border[0] / h);
+                    pos = g_pos[0] + vec2(bw, bh);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
                     EndPrimitive();
 
-                    f_tex_pos = vec2(0, 0);
-                    pos = g_pos[0] + vec2(-w, -h);
+                    f_tex_pos = vec2(-g_border[0] / w, -g_border[0] / h);
+                    pos = g_pos[0] + vec2(-bw, -bh);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    f_tex_pos = vec2(0, 1);
-                    pos = g_pos[0] + vec2(-w, h);
+                    f_tex_pos = vec2(-g_border[0] / w, 1 + g_border[0] / h);
+                    pos = g_pos[0] + vec2(-bw, bh);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
-                    f_tex_pos = vec2(1, 1);
-                    pos = g_pos[0] + vec2(w, h);
+                    f_tex_pos = vec2(1 + g_border[0] / w, 1 + g_border[0] / h);
+                    pos = g_pos[0] + vec2(bw, bh);
                     gl_Position = vec4(cam_mat_inv * (pos - cam_center), 0, 1);
                     EmitVertex();
                     EndPrimitive();
@@ -157,13 +168,18 @@ class TreeView(pgbase.canvas2d.Window2D):
             fragment_shader = """
                 #version 430
                 in vec2 f_tex_pos;
+                in float f_border;
                 out vec4 f_colour;
                 flat in uint f_tex_idx;
 
                 uniform sampler2DArray tex;
 
                 void main() {
-                    f_colour = texture(tex, vec3(f_tex_pos, f_tex_idx));
+                    if (f_tex_pos.x < 0 || f_tex_pos.x > 1 || f_tex_pos.y < 0 || f_tex_pos.y > 1) {
+                        f_colour = vec4(0, 0, 0, 1);
+                    } else {
+                        f_colour = texture(tex, vec3(f_tex_pos, f_tex_idx));
+                    }
                 }
     
             """,
@@ -377,6 +393,8 @@ class TreeView(pgbase.canvas2d.Window2D):
         #ancestors
         #descendants
 
+        ordering_node_widths = {node : self.node_widths.get(node, random.uniform(0, 1)) for node in self.T.nodes}
+
         def match(node, rw1, rw2):
             assert node in rw1
             assert node in rw2
@@ -444,36 +462,14 @@ class TreeView(pgbase.canvas2d.Window2D):
                 return stack_pair(stack(rws[:k]), stack(rws[k:]), 0.5)
 
 
-        def compute_widths_down_part(G, node, minh = -math.inf, excluded_succ = None):
-            if excluded_succ is None:
-                excluded_succ = set([])
-            assert self.node_heights[node] >= minh
-            tops = [{node : 0}]
-            found_tops = set([node])
-            for n in G.successors(node):
-                if not n in excluded_succ:
-                    if self.node_heights[n] >= minh:
-                        for p in G.predecessors(n):
-                            if not p in found_tops:
-                                found_tops.add(p)
-                                if len(tops) % 2 == 0:
-                                    tops = tops + [{p : 0}]
-                                else:
-                                    tops = [{p : 0}] + tops
-            bots = []
-            for n in G.successors(node):
-                if not n in excluded_succ:
-                    if self.node_heights[n] >= minh:
-                        bots.append(compute_widths_down_part(G, n, minh = minh))            
-            return center(stack(tops), 0) | center(stack(bots), 0)
 
         
         def compute_widths_related(G, node):
             assert nx.is_tree(G.to_undirected())
 
             #decide on an order for things
-            pred_lookup = {x : list(G.predecessors(x)) for x in G.nodes()}
-            succ_lookup = {x : list(G.successors(x)) for x in G.nodes()}
+            pred_lookup = {x : sorted(G.predecessors(x), key = lambda y : ordering_node_widths[y]) for x in G.nodes()}
+            succ_lookup = {x : sorted(G.successors(x), key = lambda y : ordering_node_widths[y]) for x in G.nodes()}
 
             #heres how the algorithm works:
             #compute_upwards
@@ -483,6 +479,31 @@ class TreeView(pgbase.canvas2d.Window2D):
             #    compute positions of all ancestors and _all_ of their decendents
             #    do this by using compute_upwards to find positions for all ancestors decendents inside the cone
             #    then go up the sides of the cone and place the remaining decendents fitted to each side of the cone
+
+            def compute_widths_down_part(G, node, minh = -math.inf, excluded_succ = None):
+                if excluded_succ is None:
+                    excluded_succ = set([])
+                assert self.node_heights[node] >= minh
+                #add partnerships
+                tops = [{node : 0}]
+                found_tops = set([node])
+                for n in succ_lookup[node]:
+                    if not n in excluded_succ:
+                        if self.node_heights[n] >= minh:
+                            for p in pred_lookup[n]:
+                                if not p in found_tops:
+                                    found_tops.add(p)
+                                    if len(tops) % 2 == 0:
+                                        tops = tops + [{p : 0}]
+                                    else:
+                                        tops = [{p : 0}] + tops
+                #add everything below
+                bots = []
+                for n in succ_lookup[node]:
+                    if not n in excluded_succ:
+                        if self.node_heights[n] >= minh:
+                            bots.append(compute_widths_down_part(G, n, minh = minh))            
+                return center(stack(tops), 0) | center(stack(bots), 0)
 
             def compute_upwards(G, node, block_left, block_right, minh_left, minh_right):
                 assert block_left or block_right
@@ -541,7 +562,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                 def gen_hang_left():   
                     for a, b in yield_left_side(node):
                         if not b in done:
-                            for x in succ_lookup[b]:
+                            for x in reversed(succ_lookup[b]):
                                 if not x is a:
                                     yield compute_widths_down_part(G, x, minh = minh_left)
                         done.add(b)
@@ -603,6 +624,13 @@ class TreeView(pgbase.canvas2d.Window2D):
                     bg_colour = [112, 64, 255, 255]
                 surf.fill(bg_colour)
                 pgbase.surftools.write(surf, entity.name(), [0, 0, 1, 0.2], [0, 0, 0, 255])
+
+                event_strs = entity.get_event_strings(["birth", "death"])
+
+                y = 0.2
+                for event_str in event_strs:
+                    pgbase.surftools.write(surf, event_str, [0, y, 1, 0.1], [0, 0, 0, 255])
+                    y += 0.1
                 
             else:
                 surf = pygame.Surface([self.tex.width, self.tex.height], flags = pygame.SRCALPHA)
@@ -629,9 +657,20 @@ class TreeView(pgbase.canvas2d.Window2D):
         buffer_vertices = self.ctx.buffer(np.array([self.node_pos(node) for node in nodes]).astype('f4'))
         tex_idx = self.ctx.buffer(np.array([self.visible_nodes[node] for node in nodes]))
         buffer_indices = self.ctx.buffer(np.array(range(len(nodes))))
+        def get_border(node):
+            if isinstance(self.tree.entity_lookup[node], treedata.Person):
+                if node in self.more_to_see_nodes:
+                    return 0.03
+                else:
+                    return 0.02
+            else:
+                return 0.0
+        borders = self.ctx.buffer(np.array([get_border(node) for node in nodes]).astype('f4'))
+        
         self.entity_vao = self.ctx.vertex_array(self.entity_prog,
                                                 [(buffer_vertices, "2f4", "pos"),
-                                                 (tex_idx, "u4", "v_tex_idx")],
+                                                 (tex_idx, "u4", "v_tex_idx"),
+                                                 (borders, "f4", "border")],
                                                 buffer_indices)
 
         colour_tree_edge = [0, 0, 0, 1]
@@ -692,6 +731,8 @@ class TreeView(pgbase.canvas2d.Window2D):
                 if dist(event.pos, scr_node_pos) < 50:
                     self.set_root(node)
                     self.center = self.center - np.array(node_pos) + np.array(self.node_pos(node))
+                    if not pgbase.tools.in_rect(self.world_to_pygame([0, 0]), self.rect):
+                        self.center[0] = 0
                     
             
     def draw(self):

@@ -283,6 +283,17 @@ class Entity():
         for pointer in self.image_pointers[:]:
             pointer.delete()
 
+    def get_event_strings(self, event_names):
+        def get_event_string(info):
+            dates = info.get_info_dates()
+            strings = [info.title[0] + "." + date.get_date_string() for date in dates]
+            if len(dates) == 0:
+                return [info.title[0] + "."]
+            else:
+                return strings
+        return sum([get_event_string(info) for info in [info for info in self.infos if type(info) == SubInfo] if info.title in event_names], [])
+
+
     def get_colour(self):
         raise NotImplementedError()
 
