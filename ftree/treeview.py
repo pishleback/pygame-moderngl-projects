@@ -358,6 +358,8 @@ class TreeView(pgbase.canvas2d.Window2D):
         for _ in range(0):
             root = next(iter(G.predecessors(root)))
 
+        self.click_pos = None
+
         self.set_root(root)
 
     def set_root(self, root):
@@ -485,7 +487,7 @@ class TreeView(pgbase.canvas2d.Window2D):
                     excluded_succ = set([])
                 assert self.node_heights[node] >= minh
                 #add partnerships
-                tops = [{node : 0}]
+                tops = [node]
                 found_tops = set([node])
                 for n in succ_lookup[node]:
                     if not n in excluded_succ:
@@ -494,9 +496,10 @@ class TreeView(pgbase.canvas2d.Window2D):
                                 if not p in found_tops:
                                     found_tops.add(p)
                                     if len(tops) % 2 == 0:
-                                        tops = tops + [{p : 0}]
+                                        tops = tops + [p]
                                     else:
-                                        tops = [{p : 0}] + tops
+                                        tops = [p] + tops
+                tops = [{p : 0} for p in sorted(tops, key = lambda p : ordering_node_widths[p])]
                 #add everything below
                 bots = []
                 for n in succ_lookup[node]:
@@ -543,6 +546,12 @@ class TreeView(pgbase.canvas2d.Window2D):
                 assert node in base
                 core = match(node, compute_upwards(G, node, True, True, minh_left, minh_right), base)
 
+##                def yield_middle(x):
+##                    ps = pred_lookup[x]
+##                    if len(ps) == 1:
+##                        yield x, ps[0]
+##                        yield from yield_left_side(ps[0])
+
                 def yield_left_side(x):
                     ps = pred_lookup[x]
                     if len(ps) >= 1:
@@ -555,17 +564,25 @@ class TreeView(pgbase.canvas2d.Window2D):
                         yield x, ps[-1]
                         yield from yield_right_side(ps[-1])
 
-                preds = pred_lookup[node]
+##                if (minh_both := minh_left) == minh_right:
+##                    bottoms = []
+##                    for a, b in yield_middle(node):
+##                        for x in succ_lookup[b]:
+##                            bottoms.append((x, compute_widths_down_part(G, x, minh = minh_both)))
+##                    bottoms = sorted(bottoms, key = lambda pair : ordering_node_widths[pair[0]])
+##                    bottoms = [piece for x, piece in bottoms]
+##                    node = b #named becasue its at the top of the 1 wide stalk of the tree
 
+
+                preds = pred_lookup[node]
                 done = set([]) #so that we dont repeat descendants of things lying on the initial 1 wide stalk
-                
                 def gen_hang_left():   
-                    for a, b in yield_left_side(node):
+                    for a, b in yield_left_side(node):                            
                         if not b in done:
                             for x in reversed(succ_lookup[b]):
                                 if not x is a:
                                     yield compute_widths_down_part(G, x, minh = minh_left)
-                        done.add(b)
+                            done.add(b)
 
                 def gen_hang_right():              
                     for a, b in yield_right_side(node):
@@ -573,15 +590,15 @@ class TreeView(pgbase.canvas2d.Window2D):
                             for x in succ_lookup[b]:
                                 if not x is a:
                                     yield compute_widths_down_part(G, x, minh = minh_right)
-                        done.add(b)
-                
+                            done.add(b)
+                    
                 if minh_left <= minh_right:
                     hang_left = list(gen_hang_left())
                     hang_right = list(gen_hang_right())
                 else:
                     hang_right = list(gen_hang_right())
                     hang_left = list(gen_hang_left())
-
+                    
                 for hang in hang_left:
                     core = stack([hang, core])
                 for hang in hang_right:
@@ -645,6 +662,8 @@ class TreeView(pgbase.canvas2d.Window2D):
 
 
     def node_pos(self, node):
+        #currently requires the x position to be preserved so that the interactive stuff works
+        #can add a inverse node pos function if this needs to be changed in the future
         pos = self.node_draw_positions[node]
         return [pos[0], 2 * pos[1]]
 
@@ -719,20 +738,40 @@ class TreeView(pgbase.canvas2d.Window2D):
     def event(self, event):
         def dist(p1, p2):
             return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+
+        CLICK_DIST = 30
         
         super().event(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
-                pos = self.pygame_to_world(event.pos)                    
-                node = min(self.node_draw_positions.keys(), key = lambda node : dist(pos, self.node_pos(node)))
-                node_pos = self.node_pos(node)
-                scr_node_pos = self.world_to_pygame(node_pos)
-                
-                if dist(event.pos, scr_node_pos) < 50:
-                    self.set_root(node)
-                    self.center = self.center - np.array(node_pos) + np.array(self.node_pos(node))
-                    if not pgbase.tools.in_rect(self.world_to_pygame([0, 0]), self.rect):
-                        self.center[0] = 0
+                self.click_pos = event.pos
+            
+        if event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                if not self.click_pos is None:
+                    if dist(self.click_pos, event.pos) < CLICK_DIST:
+                        pos = self.pygame_to_world(self.click_pos)
+                        node = min(self.node_draw_positions.keys(), key = lambda node : dist(pos, self.node_pos(node)))
+                        node_pos = self.node_pos(node)
+                        scr_node_pos = self.world_to_pygame(node_pos)
+                        if dist(self.click_pos, scr_node_pos) < CLICK_DIST:
+                            self.set_root(node)
+                            self.center = self.center - np.array(node_pos) + np.array(self.node_pos(node))
+                            if not pgbase.tools.in_rect(self.world_to_pygame([0, 0]), self.rect):
+                                self.center[0] = 0
+
+                    else:
+                        pos = self.pygame_to_world(self.click_pos)
+                        node = min(self.node_draw_positions.keys(), key = lambda node : dist(pos, self.node_pos(node)))
+                        node_pos = self.node_pos(node)
+                        scr_node_pos = self.world_to_pygame(node_pos)
+                        if dist(self.click_pos, scr_node_pos) < CLICK_DIST:
+                            #move node and re-calculate positions using the new position to determine the ordering
+                            self.node_widths[node] = self.pygame_to_world(event.pos)[0]
+                            self.set_root(self.root)
+                        
+
+                    self.click_pos = None
                     
             
     def draw(self):
