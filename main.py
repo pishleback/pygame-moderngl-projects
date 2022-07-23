@@ -3,8 +3,8 @@ if __name__ == "__main__":
 ##    mandel.run()
 
 
-    import ftree
-    ftree.run()
+##    import ftree
+##    ftree.run()
 
 
 ##    import polytopes
@@ -15,7 +15,7 @@ if __name__ == "__main__":
 ##    rsphere.run()
 
 
-##    import chessai
-##    chessai.wormhole.run()
+    import chessai
+    chessai.wormhole.run()
 ##    chessai.standard.run()
 
