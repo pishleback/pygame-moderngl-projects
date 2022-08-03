@@ -20,6 +20,12 @@ class Window():
 
         cls.screen = screen
         cls.ctx = ctx
+
+    @classmethod
+    def quit(cls):
+        cls.ctx.release()
+        pygame.quit()
+        sys.exit()
     
     def __init__(self, rect = None):
         assert not type(self).screen is None
@@ -46,9 +52,6 @@ class Window():
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 raise ExitException()
-    def end(self):
-        self.ctx.release()
-
 
 
 
@@ -75,7 +78,10 @@ def run(window):
             pygame.display.flip()
     except ExitException as e:
         pass
-    finally:
-        window.end()
-    
+    except Exception as e: 
+        Window.quit()
+        raise e
+
+
+
 

@@ -318,6 +318,7 @@ class MandelbrotBase(pgbase.canvas2d.Window2D):
 
                     self.ignore_fbo.use()
                     pgbase.tools.render_tex(self.colour_tex)
+                    
                 todo = leaf.render(renderer, self.targ_iter)
                 self.render_leaves.pop()
                 self.render_leaves.extend(todo)
@@ -630,8 +631,8 @@ class JuliaSelect(Mandelbrot):
 ##                p1 = self.world_to_gl(self.bg_poses[0])
 ##                p2 = self.world_to_gl(self.bg_poses[1])
                 pgbase.core.run(JuliaView(self.colour_tex,
-                          self.pygame_to_world(event.pos),
-                          self.gl_to_world))
+                                          self.pygame_to_world(event.pos),
+                                          self.gl_to_world))
 
         
 
@@ -641,8 +642,7 @@ class JuliaSelect(Mandelbrot):
 def run():
     pgbase.core.Window.setup(size = [1000, 1000])
     pgbase.core.run(JuliaSelect())
-    pygame.quit()
-    sys.exit()
+    pgbase.core.Window.quit()
     
 
 

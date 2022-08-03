@@ -5,6 +5,7 @@ import moderngl
 
 def render_tex(texture, p1 = [-1, -1], p2 = [1, 1], alpha = 1):
     ctx = texture.ctx
+    
     prog = ctx.program(
         vertex_shader = """
             #version 430
