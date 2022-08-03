@@ -640,7 +640,7 @@ class JuliaSelect(Mandelbrot):
 
 
 def run():
-    pgbase.core.Window.setup(size = [1000, 1000])
+    pgbase.core.Window.setup(size = [2000, 1600])
     pgbase.core.run(JuliaSelect())
     pgbase.core.Window.quit()
     
