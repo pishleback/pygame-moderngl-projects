@@ -14,7 +14,7 @@ Draw high dimensional polytopes
 ![Capture](https://user-images.githubusercontent.com/11195846/170892182-914e0974-6198-4663-b489-115519959318.PNG)
 ## Family Tree
 For drawing and editing family trees.
-![Capture](https://user-images.githubusercontent.com/11195846/170891994-47cf0d7c-ea66-4b36-94ca-0622c4dba0e2.PNG)
+![Screenshot 2022-08-03 164012](https://user-images.githubusercontent.com/11195846/182650886-51f0c9cd-9526-4aa4-996b-6f6ac465b478.png)
 ## Chess Ai
 For playing chess
 ![Capture](https://user-images.githubusercontent.com/11195846/172492421-4f6cf747-c8ce-4265-b872-43f17b39dc6f.PNG)
