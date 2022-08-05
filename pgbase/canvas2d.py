@@ -184,6 +184,8 @@ class Window2D(pgbase.core.Window):
             except KeyError: pass
             try: prog["cam_mat_inv"].value = tuple(cam_mat_inv.flatten())
             except KeyError: pass
+            try: prog["rect"].value = tuple(self.rect)
+            except KeyError: pass
 
     def event(self, event):
         super().event(event)
