@@ -1,6 +1,9 @@
 if __name__ == "__main__":
-    import mandel
-    mandel.run()
+##    import mandel
+##    mandel.run()
+
+    import reaction_patterns
+    reaction_patterns.run()
 
 
 ##    import ftree

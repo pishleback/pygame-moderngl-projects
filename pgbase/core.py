@@ -1,6 +1,7 @@
 import pygame
 import moderngl
 import sys
+import warnings
 
 class Window():
     screen = None
@@ -24,8 +25,6 @@ class Window():
     @classmethod
     def quit(cls):
         cls.ctx.release()
-        pygame.quit()
-        sys.exit()
     
     def __init__(self, rect = None):
         assert not type(self).screen is None
@@ -58,9 +57,12 @@ class Window():
 class ExitException(Exception):
         pass
 
-    
 
+RUN_ROOT_COUNT = 0
 def run(window):
+    if RUN_ROOT_COUNT == 0:
+        warnings.warn("run has been called before run_root. It should only be called after run_root for starting sub-applications.", RuntimeWarning)
+
     w, h = window.screen.get_size()
     window.set_rect([0, 0, w, h])
     clock = pygame.time.Clock()
@@ -78,9 +80,18 @@ def run(window):
             pygame.display.flip()
     except ExitException as e:
         pass
-    except Exception as e: 
-        Window.quit()
-        raise e
+    Window.quit()
+
+def run_root(window):
+    global RUN_ROOT_COUNT
+    if RUN_ROOT_COUNT > 0:
+        warnings.warn("run_root has been called already. It should only be called once when the application is being started.", RuntimeWarning)
+    RUN_ROOT_COUNT += 1
+        
+    run(window)
+    pygame.quit()
+    sys.exit()
+    
 
 
 

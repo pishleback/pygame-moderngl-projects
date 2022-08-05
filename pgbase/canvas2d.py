@@ -178,18 +178,12 @@ class Window2D(pgbase.core.Window):
         cam_mat = cam_mat.transpose()
         cam_mat_inv = cam_mat_inv.transpose()
         for prog in progs:
-            try:
-                prog["cam_center"].value = tuple(self.center)
-            except KeyError:
-                pass
-            try:
-                prog["cam_mat"].value = tuple(cam_mat.flatten())
-            except KeyError:
-                pass
-            try:
-                prog["cam_mat_inv"].value = tuple(cam_mat_inv.flatten())
-            except KeyError:
-                pass
+            try: prog["cam_center"].value = tuple(self.center)
+            except KeyError: pass
+            try: prog["cam_mat"].value = tuple(cam_mat.flatten())
+            except KeyError: pass
+            try: prog["cam_mat_inv"].value = tuple(cam_mat_inv.flatten())
+            except KeyError: pass
 
     def event(self, event):
         super().event(event)
