@@ -25,6 +25,8 @@ class Window():
     @classmethod
     def quit(cls):
         cls.ctx.release()
+        pygame.quit()
+        sys.exit()
     
     def __init__(self, rect = None):
         assert not type(self).screen is None
@@ -80,17 +82,14 @@ def run(window):
             pygame.display.flip()
     except ExitException as e:
         pass
-    Window.quit()
 
 def run_root(window):
     global RUN_ROOT_COUNT
     if RUN_ROOT_COUNT > 0:
         warnings.warn("run_root has been called already. It should only be called once when the application is being started.", RuntimeWarning)
     RUN_ROOT_COUNT += 1
-        
     run(window)
-    pygame.quit()
-    sys.exit()
+    Window.quit()
     
 
 
