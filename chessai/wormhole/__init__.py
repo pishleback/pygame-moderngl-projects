@@ -1357,10 +1357,8 @@ class BoardView(pgbase.canvas3d.Window):
 
 
 def run():
-    pgbase.core.Window.setup(size = [2000, 1600])
-    pgbase.core.run(BoardView())
-    pygame.quit()
-    sys.exit()
+    pgbase.core.Window.setup(size = [1600, 1000])
+    pgbase.core.run_root(BoardView())
 
 
 
