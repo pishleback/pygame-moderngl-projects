@@ -1112,6 +1112,9 @@ class BoardView(pgbase.canvas3d.Window):
         self.last_move = None
         self.last_interact_time = time.time()
 
+        self.left_click_down_pos = (0, 0)
+        self.left_click_is_dragging = False
+
         self.set_board(BOARD_SIGNATURE.starting_board())
 
 
@@ -1311,39 +1314,50 @@ class BoardView(pgbase.canvas3d.Window):
         self.last_interact_time = time.time()
         super().event(event)
         if event.type == pygame.MOUSEBUTTONDOWN:
+            self.left_click_down_pos = event.pos
+            self.left_click_is_dragging = False
+        
+        if event.type == pygame.MOUSEBUTTONUP:
             if not self.has_focus:
                 if event.button == 3:
-                    sq = self.get_sq(event.pos)                    
-                    
-                    if sq is None:
-                        self.move_select_chain = []
-                    else:
-                        click_idx = sq_to_idx(sq)
-                        clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
-                        for move in clicked_moves:
-                            if [msp.idx for msp in move.select_points] == self.move_select_chain + [click_idx]:
-                                self.make_move(move)
-                                break
+                    if not self.left_click_is_dragging:
+                        sq = self.get_sq(event.pos)                    
+                        
+                        if sq is None:
+                            self.move_select_chain = []
                         else:
-                            if len(clicked_moves) == 0:
-                                self.move_select_chain = []
-                                clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
-                                if len(clicked_moves) != 0:
-                                    self.move_select_chain.append(click_idx)
+                            click_idx = sq_to_idx(sq)
+                            clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
+                            for move in clicked_moves:
+                                if [msp.idx for msp in move.select_points] == self.move_select_chain + [click_idx]:
+                                    self.make_move(move)
+                                    break
                             else:
-                                self.move_select_chain.append(click_idx)
-                    self.update_sq_colours()
+                                if len(clicked_moves) == 0:
+                                    self.move_select_chain = []
+                                    clicked_moves = [move for move, sel_info in self.remaining_sel_moves if sel_info.idx == click_idx]
+                                    if len(clicked_moves) != 0:
+                                        self.move_select_chain.append(click_idx)
+                                else:
+                                    self.move_select_chain.append(click_idx)
+                        self.update_sq_colours()
+                    self.left_click_is_dragging = False
 
         if event.type == pygame.MOUSEMOTION:
             if pygame.mouse.get_pressed()[2]:
-                mat = np.eye(3)
-                mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, self.camera.theta)
-                mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, self.camera.phi)
-                mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, 0.01 * event.rel[0])
-                mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, 0.01 * event.rel[1])
-                mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, -self.camera.phi)
-                mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, -self.camera.theta)
-                self.world_mat = mat @ self.world_mat
+                def dist(a, b):
+                    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+                if dist(event.pos, self.left_click_down_pos) > 40:
+                    self.left_click_is_dragging = True
+                if self.left_click_is_dragging:
+                    mat = np.eye(3)
+                    mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, self.camera.theta)
+                    mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, self.camera.phi)
+                    mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, 0.01 * event.rel[0])
+                    mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, 0.01 * event.rel[1])
+                    mat = mat @ pgbase.canvasnd.rot_axes(3, 2, 1, -self.camera.phi)
+                    mat = mat @ pgbase.canvasnd.rot_axes(3, 0, 2, -self.camera.theta)
+                    self.world_mat = mat @ self.world_mat
 
     def end(self):
         #terminate ai subprocesses
@@ -1357,7 +1371,7 @@ class BoardView(pgbase.canvas3d.Window):
 
 
 def run():
-    pgbase.core.Window.setup(size = [1600, 1000])
+    pgbase.core.Window.setup(size = [1600, 1200])
     pgbase.core.run_root(BoardView())
 
 

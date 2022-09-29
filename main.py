@@ -1,6 +1,6 @@
 if __name__ == "__main__":
-    import mandel
-    mandel.run()
+##    import mandel
+##    mandel.run()
 
 
 ##    import reaction_patterns
@@ -19,7 +19,7 @@ if __name__ == "__main__":
 ##    rsphere.run()
 
 
-##    import chessai
-##    chessai.wormhole.run()
+    import chessai
+    chessai.wormhole.run()
 ##    chessai.standard.run()
 

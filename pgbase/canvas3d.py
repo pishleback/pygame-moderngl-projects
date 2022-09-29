@@ -204,7 +204,7 @@ class StlModel(SimpleModel):
             for i in f:
                 indicies.append(int(i))
 
-        print(len(vertices))
+        print(f"Loaded {self.path} with {len(vertices)} verticies and {len(indicies)} triangles.")
 
         return vertices, normals, colours, indicies
 

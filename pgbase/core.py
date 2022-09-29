@@ -34,6 +34,7 @@ class Window():
         if rect is None:
             rect = [0, 0, self.screen.get_width(), self.screen.get_height()]
         self.set_rect(rect)
+        self.is_active = True
 
     def set_rect(self, rect):
         self.rect = tuple(rect)
@@ -54,6 +55,12 @@ class Window():
             if event.key == pygame.K_ESCAPE:
                 raise ExitException()
 
+    def end(self):
+        assert self.is_active
+        self.is_active = False
+        
+    def __del__(self):
+        assert not self.is_active
 
 
 class ExitException(Exception):
@@ -82,6 +89,8 @@ def run(window):
             pygame.display.flip()
     except ExitException as e:
         pass
+    window.end()
+
 
 def run_root(window):
     global RUN_ROOT_COUNT

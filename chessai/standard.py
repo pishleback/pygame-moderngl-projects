@@ -185,9 +185,6 @@ class BoardView(pgbase.canvas2d.Window2D):
         super().tick(tps)
         if not self.ai_player is None:
             self.ai_player.tick()
-
-
-            
         
     def event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -316,6 +313,7 @@ class BoardView(pgbase.canvas2d.Window2D):
         tex.release() #to avoid memory issues lol
 
     def end(self):
+        super().end()
         #terminate ai subprocesses
         if not self.ai_player is None:
             self.ai_player.end()
@@ -328,9 +326,7 @@ class BoardView(pgbase.canvas2d.Window2D):
 
 def run():
     pgbase.core.Window.setup(size = [1000, 1000])
-    pgbase.core.run(BoardView())
-    pygame.quit()
-    sys.exit()
+    pgbase.core.run_root(BoardView())
 
 
 
