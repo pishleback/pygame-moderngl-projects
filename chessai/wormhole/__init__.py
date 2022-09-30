@@ -1371,7 +1371,7 @@ class BoardView(pgbase.canvas3d.Window):
 
 
 def run():
-    pgbase.core.Window.setup(size = [1600, 1200])
+    pgbase.core.Window.setup(size = [2000, 1600])
     pgbase.core.run_root(BoardView())
 
 
