@@ -92,10 +92,6 @@ class Rsphere():
                         }
 
 
-
-
-
-
                         vec2 mult(vec2 a, vec2 b) {
                             return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
                         }
@@ -189,14 +185,12 @@ def run():
         
 
     
-    pgbase.core.Window.setup()
+    pgbase.core.Window.setup([1600, 1000])
 
     window = pgbase.canvas3d.Window(peel_depth = 0)
     draw(window)
 
-    pgbase.core.run(window)
-    pygame.quit()
-    sys.exit()
+    pgbase.core.run_root(window)
 
 
 

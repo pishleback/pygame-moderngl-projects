@@ -439,7 +439,6 @@ class TextureSphere(Model):
             fragment_shader = """
                 #version 430
                 in vec4 v_pos_h;
-                in vec4 v_colour;
                 in vec3 v_normal;
                 in vec3 v_center;
                 uniform sampler2D peel_tex;
@@ -459,12 +458,10 @@ class TextureSphere(Model):
                     float diff = abs(dot(light, normal));
                     float spec = pow(abs(dot(-cam_vec, reflect(light, normal))), 10);
 
+                    vec4 v_colour = vec4(texture(texcube, v_pos - v_center));
                     float thicc = 1 / abs(dot(normal, cam_vec));
                     float alpha = 1 - max(0, pow(1 - v_colour.a, thicc)); //max(0, x) used to avoid weird flickering for some reason
-
                     spec *= alpha;
-
-                    vec4 v_colour = vec4(texture(texcube, v_pos - v_center));
                     f_colour = vec4((0.7 + 0.3 * diff) * v_colour.rgb + spec * (1 - v_colour.rgb), alpha + spec * (1 - alpha));
                     
                     if (do_peel) {
