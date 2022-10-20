@@ -10,7 +10,9 @@ import os
 import random
 
 
-PIX_ITER_PER_SEC = 3 * 10 ** 9
+#PIX_ITER_PER_SEC = 3 * 10 ** 9
+PIX_ITER_PER_SEC = 1 * 10 ** 9
+
 MAX_ITER = 10 ** 6
 
 class RenderBox():
