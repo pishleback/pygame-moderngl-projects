@@ -7,16 +7,16 @@ if __name__ == "__main__":
 ##    reaction_patterns.run()
 
 
-##    import ftree
-##    ftree.run()
+    import ftree
+    ftree.run()
 
 
 ##    import polytopes
 ##    polytopes.example()
 
 
-    import rsphere
-    rsphere.run()
+##    import rsphere
+##    rsphere.run()
 
 
 ##    import chessai

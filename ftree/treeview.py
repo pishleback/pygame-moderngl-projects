@@ -795,11 +795,8 @@ class TreeView(pgbase.canvas2d.Window2D):
 
 def run(tree):
     assert type(tree) == treedata.Tree
-
-    pgbase.core.Window.setup(size = [1800, 1200])
-    pgbase.core.run(TreeView(tree))
-    pygame.quit()
-    sys.exit()
+    pgbase.core.Window.setup(size = [1600, 1000])
+    pgbase.core.run_root(TreeView(tree))
 
 
 
